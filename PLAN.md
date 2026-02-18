@@ -171,3 +171,218 @@ List<MeterReading> data = hzClient.queryRange("MTR-001", start, end);
 - `e4s-model/src/main/java/org/e4s/model/serialization/` - Serializers shared by client
 - `e4s-client/src/main/java/org/e4s/client/E4sClient.java` - Interface to implement
 - `e4s-server/src/main/java/org/e4s/server/config/HazelcastConfig.java` - Server config
+
+---
+
+# Plan: Dynamic Model Generation with ByteBuddy
+
+**Status:** In Progress
+
+## Overview
+
+Generate `MeterReading` and `MeterBucket` classes dynamically from XML definitions at application startup using ByteBuddy, with dynamically generated Kryo serializers for optimal performance.
+
+---
+
+## XML Schema Design
+
+**Enhanced `models.xml` schema:**
+
+```xml
+<datastore>
+  <!-- Reading Model: The time-series data point -->
+  <model name="MeterReading" package="org.e4s.model.dynamic">
+    <field name="reportedTs" type="long"/>
+    <field name="voltage" type="double"/>
+    <field name="current" type="double"/>
+    <field name="power" type="double"/>
+  </model>
+  
+  <!-- Bucket Model: Container for daily readings -->
+  <model name="MeterBucket" package="org.e4s.model.dynamic">
+    <field name="meterId" type="String"/>
+    <field name="bucketDateEpochDay" type="long"/>
+    <field name="readings" type="array" elementType="MeterReading"/>
+    <field name="readingCount" type="int"/>
+    <field name="lastAccessTime" type="long"/>
+    <field name="createdTime" type="long"/>
+    
+    <!-- Business methods to generate -->
+    <method name="addReading" type="business" logic="dedupeByTimestamp"/>
+    <method name="touch" type="business"/>
+    <method name="trimToSize" type="business"/>
+  </model>
+</datastore>
+```
+
+**Supported field types:**
+| XML Type | Java Type | Kryo Write Method |
+|----------|-----------|-------------------|
+| `string` | `String` | `writeString()` |
+| `long` | `long` | `writeLong()` |
+| `int` | `int` | `writeInt()` |
+| `double` | `double` | `writeDouble()` |
+| `float` | `float` | `writeFloat()` |
+| `boolean` | `boolean` | `writeBoolean()` |
+| `array` | `T[]` | Custom serialization |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Application Startup                        │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    ModelDefinitionLoader                        │
+│  - Parse models.xml from classpath                              │
+│  - Create ModelDefinition objects                               │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    ByteBuddyClassGenerator                      │
+│  - Generate POJO classes (fields, getters, setters)             │
+│  - Generate constructors (default + all-args)                   │
+│  - Generate toString()                                          │
+│  - Generate business methods (addReading, touch, etc.)          │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    KryoSerializerGenerator                      │
+│  - Generate type-specific Kryo Serializer classes               │
+│  - Direct field access for optimal performance                  │
+│  - Same performance as current hardcoded serializers            │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    DynamicModelRegistry                         │
+│  - Store Class<?> references                                    │
+│  - Store Serializer instances                                   │
+│  - Provide lookup by model name                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Project Structure
+
+```
+e4s-model/
+├── src/main/
+│   ├── java/org/e4s/model/
+│   │   ├── dynamic/                    # NEW PACKAGE
+│   │   │   ├── ModelDefinition.java    # POJO for XML model definition
+│   │   │   ├── FieldDefinition.java    # POJO for field definition
+│   │   │   ├── ModelDefinitionLoader.java  # Parse XML
+│   │   │   ├── ByteBuddyClassGenerator.java # Generate classes
+│   │   │   ├── KryoSerializerGenerator.java # Generate serializers
+│   │   │   └── DynamicModelRegistry.java    # Runtime lookup
+│   │   ├── MeterDayKey.java            # Keep as-is (utility class)
+│   │   └── serialization/
+│   │       └── DynamicKryoFactory.java # NEW: Uses generated serializers
+│   └── resources/
+│       └── models.xml                  # Model definitions
+```
+
+---
+
+## Implementation Steps
+
+| Step | Task | Status |
+|------|------|--------|
+| 1 | Add ByteBuddy dependency to pom.xml | ✅ Complete |
+| 2 | Create XML schema & parser (ModelDefinition, FieldDefinition, ModelDefinitionLoader) | ✅ Complete |
+| 3 | Implement ByteBuddyClassGenerator (fields, getters, setters) | ✅ Complete |
+| 4 | Generate business methods (addReading, touch, trimToSize) | ⚠️ In Progress |
+| 5 | Implement KryoSerializerGenerator | ✅ Complete |
+| 6 | Create DynamicModelRegistry | ✅ Complete |
+| 7 | Create DynamicKryoFactory | ✅ Complete |
+| 8 | Update Hazelcast serializers registration | Pending |
+| 9 | Update dependent modules (e4s-server, e4s-hzclient) | Pending |
+| 10 | Add tests | ✅ Complete (8/9 passing) |
+
+### Known Issues
+
+1. **Business method delegation**: The `addReading`, `addReadings`, `touch`, `ensureCapacity`, and `trimToSize` methods are generated but the ByteBuddy MethodDelegation is not properly invoking the interceptors. This needs further investigation.
+
+2. **Type resolution**: When generating MeterBucket, the element type for the readings array is resolved to the hardcoded `org.e4s.model.MeterReading` class instead of the dynamically generated `org.e4s.model.dynamic.MeterReading` class. This is because the class isn't loaded when we're generating the bytecode.
+
+### Next Steps
+
+1. Fix the MethodDelegation issue for business methods
+2. Update the bucket business methods to properly handle dynamic types
+3. Integrate with e4s-server and e4s-hzclient
+4. Benchmark the dynamic model generation |
+
+---
+
+## ByteBuddy Code Examples
+
+**Generating a POJO class:**
+
+```java
+public class ByteBuddyClassGenerator {
+    
+    public Class<?> generateClass(ModelDefinition definition) {
+        DynamicType.Builder<?> builder = new ByteBuddy()
+            .subclass(Object.class)
+            .name(definition.getFullName());
+        
+        // Add fields
+        for (FieldDefinition field : definition.getFields()) {
+            builder = builder.defineField(field.getName(), field.getType(), Modifier.PRIVATE);
+        }
+        
+        // Add getters and setters
+        for (FieldDefinition field : definition.getFields()) {
+            builder = builder.defineMethod("get" + capitalize(field.getName()), 
+                    field.getType(), Modifier.PUBLIC)
+                .intercept(FieldAccessor.ofField(field.getName()));
+            
+            builder = builder.defineMethod("set" + capitalize(field.getName()),
+                    void.class, Modifier.PUBLIC)
+                .withParameter(field.getType(), "value")
+                .intercept(FieldAccessor.ofField(field.getName()));
+        }
+        
+        // Add all-args constructor
+        builder = addConstructor(builder, definition);
+        
+        return builder.make()
+            .load(getClass().getClassLoader())
+            .getLoaded();
+    }
+}
+```
+
+---
+
+## Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| ByteBuddy class generation overhead | Low | Only runs once at startup (~50-100ms) |
+| Generated serializer correctness | High | Comprehensive unit tests, compare with hardcoded output |
+| Complex business methods (addReading) | Medium | Use bytecode generation or MethodDelegation |
+| Debugging dynamic classes | Medium | Generate toString(), add source file naming |
+| Performance regression | High | Benchmark against current hardcoded implementation |
+
+---
+
+## Timeline Estimate
+
+| Day | Tasks |
+|-----|-------|
+| Day 1 | XML schema, parser, ModelDefinition classes |
+| Day 2 | ByteBuddyClassGenerator for simple POJOs |
+| Day 3 | Business method generation (addReading, etc.) |
+| Day 4 | KryoSerializerGenerator |
+| Day 5 | DynamicModelRegistry, integration with KryoFactory |
+| Day 6 | Update e4s-server, e4s-hzclient |
+| Day 7 | Testing, benchmarking, documentation |
