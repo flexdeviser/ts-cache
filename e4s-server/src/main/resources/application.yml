@@ -1,0 +1,18 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: e4s-server
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+e4s:
+  retention-days: 21
+  idle-hours: 24
+  eviction:
+    interval-ms: 3600000
