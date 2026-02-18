@@ -209,7 +209,7 @@ public class ByteBuddyClassGenerator {
                                                         BucketMethodContext context) {
         return builder.defineMethod("addReading", void.class, Modifier.PUBLIC)
                 .withParameter(context.readingType, "reading")
-                .intercept(MethodDelegation.to(new BucketInterceptors.AddReadingInterceptor(context)));
+                .intercept(MethodDelegation.to(BucketInterceptors.AddReadingInterceptor.class));
     }
 
     private DynamicType.Builder<?> addAddReadingsMethod(DynamicType.Builder<?> builder,
@@ -217,20 +217,20 @@ public class ByteBuddyClassGenerator {
         Class<?> arrayType = java.lang.reflect.Array.newInstance(context.readingType, 0).getClass();
         return builder.defineMethod("addReadings", void.class, Modifier.PUBLIC)
                 .withParameter(arrayType, "newReadings")
-                .intercept(MethodDelegation.to(new BucketInterceptors.AddReadingsInterceptor()));
+                .intercept(MethodDelegation.to(BucketInterceptors.AddReadingsInterceptor.class));
     }
 
     private DynamicType.Builder<?> addEnsureCapacityMethod(DynamicType.Builder<?> builder,
                                                             BucketMethodContext context) {
         return builder.defineMethod("ensureCapacity", void.class, Modifier.PRIVATE)
                 .withParameter(int.class, "minCapacity")
-                .intercept(MethodDelegation.to(new BucketInterceptors.EnsureCapacityInterceptor(context)));
+                .intercept(MethodDelegation.to(BucketInterceptors.EnsureCapacityInterceptor.class));
     }
 
     private DynamicType.Builder<?> addTrimToSizeMethod(DynamicType.Builder<?> builder,
                                                         BucketMethodContext context) {
         return builder.defineMethod("trimToSize", void.class, Modifier.PUBLIC)
-                .intercept(MethodDelegation.to(new BucketInterceptors.TrimToSizeInterceptor(context)));
+                .intercept(MethodDelegation.to(BucketInterceptors.TrimToSizeInterceptor.class));
     }
 
     public static class BucketMethodContext {

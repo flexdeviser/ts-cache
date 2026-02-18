@@ -299,26 +299,45 @@ e4s-model/
 | 1 | Add ByteBuddy dependency to pom.xml | ✅ Complete |
 | 2 | Create XML schema & parser (ModelDefinition, FieldDefinition, ModelDefinitionLoader) | ✅ Complete |
 | 3 | Implement ByteBuddyClassGenerator (fields, getters, setters) | ✅ Complete |
-| 4 | Generate business methods (addReading, touch, trimToSize) | ⚠️ In Progress |
+| 4 | Generate business methods (addReading, touch, trimToSize) | ✅ Complete |
 | 5 | Implement KryoSerializerGenerator | ✅ Complete |
 | 6 | Create DynamicModelRegistry | ✅ Complete |
 | 7 | Create DynamicKryoFactory | ✅ Complete |
-| 8 | Update Hazelcast serializers registration | Pending |
-| 9 | Update dependent modules (e4s-server, e4s-hzclient) | Pending |
-| 10 | Add tests | ✅ Complete (8/9 passing) |
+| 8 | Create Models helper class | ✅ Complete |
+| 9 | Update Hazelcast serializers registration | Pending |
+| 10 | Update dependent modules (e4s-server, e4s-hzclient) | Pending |
+| 11 | Add tests | ✅ Complete (9/9 passing) |
 
-### Known Issues
+### Architecture Options for Full Migration
 
-1. **Business method delegation**: The `addReading`, `addReadings`, `touch`, `ensureCapacity`, and `trimToSize` methods are generated but the ByteBuddy MethodDelegation is not properly invoking the interceptors. This needs further investigation.
+**Option A: Interface-based (Recommended)**
+1. Convert MeterReading, MeterBucket to interfaces
+2. Generate dynamic implementations
+3. All code references interfaces, uses factory methods
 
-2. **Type resolution**: When generating MeterBucket, the element type for the readings array is resolved to the hardcoded `org.e4s.model.MeterReading` class instead of the dynamically generated `org.e4s.model.dynamic.MeterReading` class. This is because the class isn't loaded when we're generating the bytecode.
+**Option B: Reflection-based**
+1. Delete hardcoded classes
+2. Use Models helper class everywhere
+3. Slower due to reflection
 
-### Next Steps
+**Option C: Hybrid**
+1. Keep hardcoded classes as defaults
+2. Allow dynamic models for custom types
+3. Backward compatible
 
-1. Fix the MethodDelegation issue for business methods
-2. Update the bucket business methods to properly handle dynamic types
-3. Integrate with e4s-server and e4s-hzclient
-4. Benchmark the dynamic model generation |
+### Current Implementation
+
+The dynamic model system generates classes at runtime:
+- `org.e4s.model.dynamic.MeterReading`
+- `org.e4s.model.dynamic.MeterBucket`
+
+Use `Models` helper class to work with dynamic models:
+```java
+Models.initialize();
+Object reading = Models.newReading(ts, 220.5, 5.2, 1146.6);
+Object bucket = Models.newBucket("MTR-001", epochDay);
+Models.addReading(bucket, reading);
+``` |
 
 ---
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <datastore>
   <model name="MeterReading" package="org.e4s.model.dynamic" timestampField="reportedTs">
-    <field name="reportedTs" type="long"/>
+    <field name="reportedTs" type="long" timeKey="true"/>
     <field name="voltage" type="double"/>
     <field name="current" type="double"/>
     <field name="power" type="double"/>

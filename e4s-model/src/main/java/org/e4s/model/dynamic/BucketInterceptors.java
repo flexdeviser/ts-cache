@@ -1,44 +1,41 @@
 package org.e4s.model.dynamic;
 
-import net.bytebuddy.implementation.bind.annotation.Origin;
+import net.bytebuddy.implementation.bind.annotation.AllArguments;
+import net.bytebuddy.implementation.bind.annotation.FieldValue;
 import net.bytebuddy.implementation.bind.annotation.RuntimeType;
 import net.bytebuddy.implementation.bind.annotation.This;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 public class BucketInterceptors {
 
     public static class TouchInterceptor {
-        @RuntimeType
-        public static Object intercept(@This Object self) throws Exception {
+        public static void intercept(@This Object self) throws Exception {
             Field lastAccessTimeField = self.getClass().getDeclaredField("lastAccessTime");
             lastAccessTimeField.setAccessible(true);
             lastAccessTimeField.setLong(self, System.currentTimeMillis());
-            return null;
         }
     }
 
     public static class AddReadingInterceptor {
-        private final ByteBuddyClassGenerator.BucketMethodContext context;
-
-        public AddReadingInterceptor(ByteBuddyClassGenerator.BucketMethodContext context) {
-            this.context = context;
-        }
-
         @RuntimeType
-        public Object intercept(@This Object self, @RuntimeType Object reading) throws Exception {
-            Field readingsField = self.getClass().getDeclaredField(context.arrayFieldName);
+        public static void intercept(@This Object self, @AllArguments Object[] args) throws Exception {
+            Object reading = args[0];
+            
+            Field readingsField = self.getClass().getDeclaredField("readings");
             readingsField.setAccessible(true);
-            Field countField = context.countFieldName != null 
-                    ? self.getClass().getDeclaredField(context.countFieldName) : null;
-            if (countField != null) countField.setAccessible(true);
+            Field countField = self.getClass().getDeclaredField("readingCount");
+            countField.setAccessible(true);
             
             Object[] readings = (Object[]) readingsField.get(self);
-            int count = countField != null ? countField.getInt(self) : 0;
+            int count = countField.getInt(self);
             
-            if (readings == null) {
-                ensureCapacity(self, 1);
+            if (readings == null || readings.length == 0) {
+                Class<?> componentType = reading.getClass();
+                Object newArray = Array.newInstance(componentType, 16);
+                readingsField.set(self, newArray);
                 readings = (Object[]) readingsField.get(self);
             }
             
@@ -50,115 +47,102 @@ public class BucketInterceptors {
                 if (existingTs == newTimestamp) {
                     readings[i] = reading;
                     touch(self);
-                    return null;
+                    return;
                 }
             }
             
-            ensureCapacity(self, count + 1);
-            readings = (Object[]) readingsField.get(self);
-            readings[count] = reading;
-            if (countField != null) {
-                countField.setInt(self, count + 1);
+            if (count >= readings.length) {
+                int newCapacity = readings.length + (readings.length >> 1);
+                Class<?> componentType = readings.getClass().getComponentType();
+                Object[] newReadings = (Object[]) Array.newInstance(componentType, newCapacity);
+                System.arraycopy(readings, 0, newReadings, 0, count);
+                readingsField.set(self, newReadings);
+                readings = newReadings;
             }
+            
+            readings[count] = reading;
+            countField.setInt(self, count + 1);
             touch(self);
-            return null;
         }
 
-        private long getTimestamp(Object reading) throws Exception {
-            String getterName = "get" + Character.toUpperCase(context.timestampField.charAt(0)) +
-                               context.timestampField.substring(1);
-            Method getter = reading.getClass().getMethod(getterName);
+        private static long getTimestamp(Object reading) throws Exception {
+            Method getter = reading.getClass().getMethod("getReportedTs");
             return (Long) getter.invoke(reading);
         }
 
-        private void ensureCapacity(Object self, int minCapacity) throws Exception {
-            Method ensureMethod = self.getClass().getDeclaredMethod("ensureCapacity", int.class);
-            ensureMethod.setAccessible(true);
-            ensureMethod.invoke(self, minCapacity);
-        }
-
-        private void touch(Object self) throws Exception {
-            Method touchMethod = self.getClass().getMethod("touch");
-            touchMethod.invoke(self);
+        private static void touch(Object self) throws Exception {
+            Field lastAccessTimeField = self.getClass().getDeclaredField("lastAccessTime");
+            lastAccessTimeField.setAccessible(true);
+            lastAccessTimeField.setLong(self, System.currentTimeMillis());
         }
     }
 
     public static class AddReadingsInterceptor {
-        @RuntimeType
-        public Object intercept(@This Object self, @RuntimeType Object[] newReadings) throws Exception {
+        public static void intercept(@This Object self, @AllArguments Object[] args) throws Exception {
+            Object[] newReadings = (Object[]) args[0];
             if (newReadings == null || newReadings.length == 0) {
-                return null;
+                return;
             }
             
-            Method addMethod = self.getClass().getMethod("addReading", 
-                    newReadings.getClass().getComponentType());
+            Method addMethod = self.getClass().getMethod("addReading", newReadings.getClass().getComponentType());
             for (Object reading : newReadings) {
                 addMethod.invoke(self, reading);
             }
-            return null;
         }
     }
 
     public static class EnsureCapacityInterceptor {
-        private final ByteBuddyClassGenerator.BucketMethodContext context;
-
-        public EnsureCapacityInterceptor(ByteBuddyClassGenerator.BucketMethodContext context) {
-            this.context = context;
-        }
-
-        @RuntimeType
-        public Object intercept(@This Object self, int minCapacity) throws Exception {
-            Field readingsField = self.getClass().getDeclaredField(context.arrayFieldName);
+        public static void intercept(@This Object self, @AllArguments Object[] args) throws Exception {
+            int minCapacity = (Integer) args[0];
+            
+            Field readingsField = self.getClass().getDeclaredField("readings");
             readingsField.setAccessible(true);
             
             Object[] readings = (Object[]) readingsField.get(self);
+            
             if (readings == null) {
-                Object newArray = java.lang.reflect.Array.newInstance(context.readingType, Math.max(minCapacity, 16));
+                Field countField = self.getClass().getDeclaredField("readingCount");
+                countField.setAccessible(true);
+                int count = countField.getInt(self);
+                
+                Class<?> readingType = readings.getClass().getComponentType();
+                Object newArray = Array.newInstance(readingType, Math.max(minCapacity, 16));
                 readingsField.set(self, newArray);
-                return null;
+                return;
             }
             
             if (readings.length < minCapacity) {
                 int newCapacity = Math.max(minCapacity, readings.length + (readings.length >> 1));
-                Object[] newReadings = (Object[]) java.lang.reflect.Array.newInstance(
-                        context.readingType, newCapacity);
+                Class<?> readingType = readings.getClass().getComponentType();
+                Object[] newReadings = (Object[]) Array.newInstance(readingType, newCapacity);
                 System.arraycopy(readings, 0, newReadings, 0, readings.length);
                 readingsField.set(self, newReadings);
             }
-            return null;
         }
     }
 
     public static class TrimToSizeInterceptor {
-        private final ByteBuddyClassGenerator.BucketMethodContext context;
-
-        public TrimToSizeInterceptor(ByteBuddyClassGenerator.BucketMethodContext context) {
-            this.context = context;
-        }
-
-        @RuntimeType
-        public Object intercept(@This Object self) throws Exception {
-            Field readingsField = self.getClass().getDeclaredField(context.arrayFieldName);
+        public static void intercept(@This Object self) throws Exception {
+            Field readingsField = self.getClass().getDeclaredField("readings");
             readingsField.setAccessible(true);
-            Field countField = context.countFieldName != null 
-                    ? self.getClass().getDeclaredField(context.countFieldName) : null;
-            if (countField != null) countField.setAccessible(true);
+            Field countField = self.getClass().getDeclaredField("readingCount");
+            countField.setAccessible(true);
             
             Object[] readings = (Object[]) readingsField.get(self);
-            int count = countField != null ? countField.getInt(self) : 0;
+            int count = countField.getInt(self);
             
             if (readings != null && readings.length > count) {
                 if (count == 0) {
-                    Object emptyArray = java.lang.reflect.Array.newInstance(context.readingType, 0);
+                    Class<?> readingType = readings.getClass().getComponentType();
+                    Object emptyArray = Array.newInstance(readingType, 0);
                     readingsField.set(self, emptyArray);
                 } else {
-                    Object[] trimmed = (Object[]) java.lang.reflect.Array.newInstance(
-                            context.readingType, count);
+                    Class<?> readingType = readings.getClass().getComponentType();
+                    Object[] trimmed = (Object[]) Array.newInstance(readingType, count);
                     System.arraycopy(readings, 0, trimmed, 0, count);
                     readingsField.set(self, trimmed);
                 }
             }
-            return null;
         }
     }
 }
