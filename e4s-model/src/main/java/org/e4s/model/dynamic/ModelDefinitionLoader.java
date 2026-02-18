@@ -49,9 +49,13 @@ public class ModelDefinitionLoader {
     private ModelDefinition parseModel(Element modelElement) {
         String name = modelElement.getAttribute("name");
         String packageName = modelElement.getAttribute("package");
+        String implementsInterface = modelElement.getAttribute("implements");
         String timestampField = modelElement.getAttribute("timestampField");
 
         ModelDefinition modelDef = new ModelDefinition(name, packageName);
+        if (!implementsInterface.isEmpty()) {
+            modelDef.setImplementsInterface(implementsInterface);
+        }
         if (!timestampField.isEmpty()) {
             modelDef.setTimestampField(timestampField);
         }

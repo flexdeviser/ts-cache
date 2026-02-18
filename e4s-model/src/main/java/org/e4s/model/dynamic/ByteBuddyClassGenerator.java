@@ -1,8 +1,8 @@
 package org.e4s.model.dynamic;
 
 import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.description.modifier.Visibility;
 import net.bytebuddy.dynamic.DynamicType;
-import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import net.bytebuddy.implementation.FieldAccessor;
 import net.bytebuddy.implementation.FixedValue;
 import net.bytebuddy.implementation.MethodCall;
@@ -23,37 +23,25 @@ public class ByteBuddyClassGenerator {
     public Map<String, Class<?>> generateAllClasses(Map<String, ModelDefinition> definitions) {
         this.allDefinitions = definitions;
         Map<String, Class<?>> result = new LinkedHashMap<>();
-        
-        Map<String, ModelDefinition> sortedDefinitions = new LinkedHashMap<>();
-        for (ModelDefinition def : definitions.values()) {
-            if (!def.hasArrayField()) {
-                sortedDefinitions.put(def.getName(), def);
-            }
-        }
-        for (ModelDefinition def : definitions.values()) {
-            if (def.hasArrayField()) {
-                sortedDefinitions.put(def.getName(), def);
-            }
-        }
-        
+
         List<DynamicType.Unloaded<?>> unloadedTypes = new ArrayList<>();
         Map<String, Integer> typeIndexMap = new HashMap<>();
-        
+
         int index = 0;
-        for (ModelDefinition def : sortedDefinitions.values()) {
+        for (ModelDefinition def : definitions.values()) {
             DynamicType.Unloaded<?> unloaded = generateUnloadedClass(def, definitions);
             unloadedTypes.add(unloaded);
             typeIndexMap.put(def.getName(), index);
             index++;
         }
-        
-        Map<String, Class<?>> loaded = loadAllClasses(unloadedTypes, typeIndexMap, sortedDefinitions);
-        
+
+        Map<String, Class<?>> loaded = loadAllClasses(unloadedTypes, typeIndexMap, definitions);
+
         for (Map.Entry<String, Class<?>> entry : loaded.entrySet()) {
             result.put(entry.getKey(), entry.getValue());
             generatedClasses.put(entry.getKey(), entry.getValue());
         }
-        
+
         return result;
     }
 
@@ -61,13 +49,13 @@ public class ByteBuddyClassGenerator {
                                                    Map<String, Integer> typeIndexMap,
                                                    Map<String, ModelDefinition> definitions) {
         Map<String, Class<?>> result = new LinkedHashMap<>();
-        
+
         ClassLoader classLoader = getClass().getClassLoader();
-        
+
         for (int i = 0; i < unloadedTypes.size(); i++) {
             DynamicType.Unloaded<?> unloaded = unloadedTypes.get(i);
             Class<?> loadedClass = unloaded.load(classLoader).getLoaded();
-            
+
             for (Map.Entry<String, Integer> entry : typeIndexMap.entrySet()) {
                 if (entry.getValue() == i) {
                     result.put(entry.getKey(), loadedClass);
@@ -75,41 +63,65 @@ public class ByteBuddyClassGenerator {
                 }
             }
         }
-        
+
         return result;
     }
 
     private DynamicType.Unloaded<?> generateUnloadedClass(ModelDefinition definition,
                                                            Map<String, ModelDefinition> allDefinitions) {
-        DynamicType.Builder<?> builder = new ByteBuddy()
-                .subclass(Object.class)
-                .name(definition.getFullName())
-                .modifiers(Modifier.PUBLIC);
+        ByteBuddy byteBuddy = new ByteBuddy();
+        
+        DynamicType.Builder<?> builder;
+        
+        if (definition.getImplementsInterface() != null && !definition.getImplementsInterface().isEmpty()) {
+            Class<?> interfaceClass = resolveInterface(definition.getImplementsInterface());
+            builder = byteBuddy
+                    .subclass(Object.class)
+                    .name(definition.getFullName())
+                    .modifiers(Modifier.PUBLIC)
+                    .implement(interfaceClass);
+        } else {
+            builder = byteBuddy
+                    .subclass(Object.class)
+                    .name(definition.getFullName())
+                    .modifiers(Modifier.PUBLIC);
+        }
 
         for (FieldDefinition field : definition.getFields()) {
             Class<?> fieldType = resolveFieldType(field, allDefinitions);
             builder = builder.defineField(field.getName(), fieldType, Modifier.PRIVATE);
         }
 
-        builder = addAllArgsConstructor(builder, definition, allDefinitions);
-        
         for (FieldDefinition field : definition.getFields()) {
             builder = addGetter(builder, field, allDefinitions);
             builder = addSetter(builder, field, allDefinitions);
         }
 
-        builder = addToString(builder, definition);
-
-        if (isBucketModel(definition)) {
-            builder = addBucketBusinessMethods(builder, definition, allDefinitions);
+        if (definition.getTimestampField() != null) {
+            builder = addGetTimestampMethod(builder, definition);
         }
+
+        builder = addToString(builder, definition);
 
         return builder.make();
     }
 
-    public Class<?> generateClass(ModelDefinition definition, Map<String, ModelDefinition> allDefinitions) {
-        DynamicType.Unloaded<?> unloaded = generateUnloadedClass(definition, allDefinitions);
-        return unloaded.load(getClass().getClassLoader()).getLoaded();
+    private Class<?> resolveInterface(String interfaceName) {
+        if ("Timestamped".equals(interfaceName)) {
+            return org.e4s.model.Timestamped.class;
+        }
+        try {
+            return Class.forName(interfaceName);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("Unknown interface: " + interfaceName, e);
+        }
+    }
+
+    private DynamicType.Builder<?> addGetTimestampMethod(DynamicType.Builder<?> builder,
+                                                          ModelDefinition definition) {
+        String timestampField = definition.getTimestampField();
+        return builder.defineMethod("getTimestamp", long.class, Modifier.PUBLIC)
+                .intercept(FieldAccessor.ofField(timestampField));
     }
 
     private Class<?> resolveFieldType(FieldDefinition field, Map<String, ModelDefinition> allDefinitions) {
@@ -146,16 +158,6 @@ public class ByteBuddyClassGenerator {
         }
     }
 
-    private boolean isBucketModel(ModelDefinition definition) {
-        return definition.getName().contains("Bucket") || definition.hasArrayField();
-    }
-
-    private DynamicType.Builder<?> addAllArgsConstructor(DynamicType.Builder<?> builder,
-                                                           ModelDefinition definition,
-                                                           Map<String, ModelDefinition> allDefinitions) {
-        return builder;
-    }
-
     private DynamicType.Builder<?> addGetter(DynamicType.Builder<?> builder, 
                                               FieldDefinition field,
                                               Map<String, ModelDefinition> allDefinitions) {
@@ -177,74 +179,5 @@ public class ByteBuddyClassGenerator {
                                                 ModelDefinition definition) {
         return builder.defineMethod("toString", String.class, Modifier.PUBLIC)
                 .intercept(FixedValue.value(definition.getName() + "{}"));
-    }
-
-    private DynamicType.Builder<?> addBucketBusinessMethods(DynamicType.Builder<?> builder,
-                                                             ModelDefinition definition,
-                                                             Map<String, ModelDefinition> allDefinitions) {
-        String arrayFieldName = definition.getArrayField().getName();
-        String countFieldName = definition.getCountField() != null 
-                ? definition.getCountField().getName() : null;
-        String timestampField = definition.getTimestampField();
-        Class<?> readingType = resolveElementType(definition.getArrayField().getElementType(), allDefinitions);
-        
-        BucketMethodContext context = new BucketMethodContext(
-                arrayFieldName, countFieldName, timestampField, readingType
-        );
-        
-        builder = addTouchMethod(builder);
-        builder = addEnsureCapacityMethod(builder, context);
-        builder = addAddReadingMethod(builder, context);
-        builder = addAddReadingsMethod(builder, context);
-        builder = addTrimToSizeMethod(builder, context);
-        return builder;
-    }
-
-    private DynamicType.Builder<?> addTouchMethod(DynamicType.Builder<?> builder) {
-        return builder.defineMethod("touch", void.class, Modifier.PUBLIC)
-                .intercept(MethodDelegation.to(BucketInterceptors.TouchInterceptor.class));
-    }
-
-    private DynamicType.Builder<?> addAddReadingMethod(DynamicType.Builder<?> builder,
-                                                        BucketMethodContext context) {
-        return builder.defineMethod("addReading", void.class, Modifier.PUBLIC)
-                .withParameter(context.readingType, "reading")
-                .intercept(MethodDelegation.to(BucketInterceptors.AddReadingInterceptor.class));
-    }
-
-    private DynamicType.Builder<?> addAddReadingsMethod(DynamicType.Builder<?> builder,
-                                                         BucketMethodContext context) {
-        Class<?> arrayType = java.lang.reflect.Array.newInstance(context.readingType, 0).getClass();
-        return builder.defineMethod("addReadings", void.class, Modifier.PUBLIC)
-                .withParameter(arrayType, "newReadings")
-                .intercept(MethodDelegation.to(BucketInterceptors.AddReadingsInterceptor.class));
-    }
-
-    private DynamicType.Builder<?> addEnsureCapacityMethod(DynamicType.Builder<?> builder,
-                                                            BucketMethodContext context) {
-        return builder.defineMethod("ensureCapacity", void.class, Modifier.PRIVATE)
-                .withParameter(int.class, "minCapacity")
-                .intercept(MethodDelegation.to(BucketInterceptors.EnsureCapacityInterceptor.class));
-    }
-
-    private DynamicType.Builder<?> addTrimToSizeMethod(DynamicType.Builder<?> builder,
-                                                        BucketMethodContext context) {
-        return builder.defineMethod("trimToSize", void.class, Modifier.PUBLIC)
-                .intercept(MethodDelegation.to(BucketInterceptors.TrimToSizeInterceptor.class));
-    }
-
-    public static class BucketMethodContext {
-        public final String arrayFieldName;
-        public final String countFieldName;
-        public final String timestampField;
-        public final Class<?> readingType;
-
-        public BucketMethodContext(String arrayFieldName, String countFieldName, 
-                                   String timestampField, Class<?> readingType) {
-            this.arrayFieldName = arrayFieldName;
-            this.countFieldName = countFieldName;
-            this.timestampField = timestampField;
-            this.readingType = readingType;
-        }
     }
 }

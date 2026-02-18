@@ -6,6 +6,7 @@ import java.util.List;
 public class ModelDefinition {
     private String name;
     private String packageName;
+    private String implementsInterface;
     private String timestampField;
     private List<FieldDefinition> fields = new ArrayList<>();
 
@@ -31,6 +32,14 @@ public class ModelDefinition {
 
     public void setPackageName(String packageName) {
         this.packageName = packageName;
+    }
+
+    public String getImplementsInterface() {
+        return implementsInterface;
+    }
+
+    public void setImplementsInterface(String implementsInterface) {
+        this.implementsInterface = implementsInterface;
     }
 
     public String getTimestampField() {
@@ -65,22 +74,12 @@ public class ModelDefinition {
                 .orElse(null);
     }
 
-    public FieldDefinition getArrayField() {
+    public FieldDefinition getTimestampFieldDef() {
+        if (timestampField == null) return null;
         return fields.stream()
-                .filter(f -> f.getType() == FieldType.ARRAY)
+                .filter(f -> f.getName().equals(timestampField))
                 .findFirst()
                 .orElse(null);
-    }
-
-    public FieldDefinition getCountField() {
-        return fields.stream()
-                .filter(f -> f.getName().endsWith("Count"))
-                .findFirst()
-                .orElse(null);
-    }
-
-    public boolean hasArrayField() {
-        return fields.stream().anyMatch(f -> f.getType() == FieldType.ARRAY);
     }
 
     @Override
@@ -88,6 +87,7 @@ public class ModelDefinition {
         return "ModelDefinition{" +
                 "name='" + name + '\'' +
                 ", packageName='" + packageName + '\'' +
+                ", implementsInterface='" + implementsInterface + '\'' +
                 ", timestampField='" + timestampField + '\'' +
                 ", fields=" + fields +
                 '}';

@@ -1,5 +1,8 @@
 package org.e4s.model.dynamic;
 
+import org.e4s.model.GenericBucket;
+import org.e4s.model.Models;
+import org.e4s.model.Timestamped;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -37,10 +40,9 @@ class DynamicModelGeneratorTest {
     }
 
     @Test
-    void shouldGenerateMeterBucketClass() {
-        assertTrue(generatedClasses.containsKey("MeterBucket"));
-        Class<?> bucketClass = generatedClasses.get("MeterBucket");
-        assertEquals("org.e4s.model.dynamic.MeterBucket", bucketClass.getName());
+    void shouldNotGenerateMeterBucketClass() {
+        // Bucket is now a generic hardcoded class, not generated
+        assertFalse(generatedClasses.containsKey("MeterBucket"));
     }
 
     @Test
@@ -68,6 +70,18 @@ class DynamicModelGeneratorTest {
     }
 
     @Test
+    void shouldImplementTimestamped() {
+        Class<?> readingClass = generatedClasses.get("MeterReading");
+        assertTrue(Timestamped.class.isAssignableFrom(readingClass));
+    }
+
+    @Test
+    void shouldHaveGetTimestampMethod() throws Exception {
+        Class<?> readingClass = generatedClasses.get("MeterReading");
+        assertNotNull(readingClass.getMethod("getTimestamp"));
+    }
+
+    @Test
     void shouldCreateMeterReadingInstance() throws Exception {
         Class<?> readingClass = generatedClasses.get("MeterReading");
         Object instance = readingClass.getDeclaredConstructor().newInstance();
@@ -82,61 +96,60 @@ class DynamicModelGeneratorTest {
     }
 
     @Test
-    void shouldHaveMeterBucketFields() throws Exception {
-        Class<?> bucketClass = generatedClasses.get("MeterBucket");
-        
-        assertNotNull(bucketClass.getDeclaredField("meterId"));
-        assertNotNull(bucketClass.getDeclaredField("bucketDateEpochDay"));
-        assertNotNull(bucketClass.getDeclaredField("readings"));
-        assertNotNull(bucketClass.getDeclaredField("readingCount"));
-        assertNotNull(bucketClass.getDeclaredField("lastAccessTime"));
-        assertNotNull(bucketClass.getDeclaredField("createdTime"));
-    }
-
-    @Test
-    void shouldHaveBucketBusinessMethods() throws Exception {
-        Class<?> bucketClass = generatedClasses.get("MeterBucket");
-        Class<?> readingClass = Class.forName("org.e4s.model.MeterReading");
-        
-        assertNotNull(bucketClass.getMethod("addReading", readingClass));
-        assertNotNull(bucketClass.getMethod("touch"));
-        assertNotNull(bucketClass.getMethod("trimToSize"));
-    }
-
-    @Test
-    void shouldCreateMeterBucketInstance() throws Exception {
-        Class<?> bucketClass = generatedClasses.get("MeterBucket");
-        Object instance = bucketClass.getDeclaredConstructor().newInstance();
-        
-        Method setMeterId = bucketClass.getMethod("setMeterId", String.class);
-        setMeterId.invoke(instance, "MTR-001");
-        
-        Method getMeterId = bucketClass.getMethod("getMeterId");
-        String meterId = (String) getMeterId.invoke(instance);
-        
-        assertEquals("MTR-001", meterId);
-    }
-
-    @Test
-    void shouldAddReadingToBucket() throws Exception {
-        Class<?> bucketClass = generatedClasses.get("MeterBucket");
-        Class<?> readingClass = Class.forName("org.e4s.model.MeterReading");
-        
-        Object bucket = bucketClass.getDeclaredConstructor().newInstance();
-        Object reading = readingClass.getConstructor().newInstance();
+    void shouldGetTimestampReturnReportedTs() throws Exception {
+        Class<?> readingClass = generatedClasses.get("MeterReading");
+        Object instance = readingClass.getDeclaredConstructor().newInstance();
         
         Method setReportedTs = readingClass.getMethod("setReportedTs", long.class);
-        setReportedTs.invoke(reading, 1234567890L);
+        setReportedTs.invoke(instance, 1234567890L);
         
-        Method setVoltage = readingClass.getMethod("setVoltage", double.class);
-        setVoltage.invoke(reading, 220.5);
+        Method getTimestamp = readingClass.getMethod("getTimestamp");
+        long timestamp = (Long) getTimestamp.invoke(instance);
         
-        Method addReading = bucketClass.getMethod("addReading", readingClass);
-        addReading.invoke(bucket, reading);
+        assertEquals(1234567890L, timestamp);
+    }
+
+    @Test
+    void shouldCreateReadingUsingModels() {
+        Timestamped reading = Models.newReading(1234567890L, 220.5, 5.2, 1146.6);
         
-        Method getReadingCount = bucketClass.getMethod("getReadingCount");
-        int count = (Integer) getReadingCount.invoke(bucket);
+        assertEquals(1234567890L, reading.getTimestamp());
+        assertEquals(1234567890L, Models.getReportedTs(reading));
+        assertEquals(220.5, Models.getVoltage(reading), 0.001);
+        assertEquals(5.2, Models.getCurrent(reading), 0.001);
+        assertEquals(1146.6, Models.getPower(reading), 0.001);
+    }
+
+    @Test
+    void shouldCreateBucketUsingModels() {
+        GenericBucket<Timestamped> bucket = Models.newBucket("MTR-001", 19500L);
         
-        assertEquals(1, count);
+        assertEquals("MTR-001", bucket.getMeterId());
+        assertEquals(19500L, bucket.getBucketDateEpochDay());
+        assertEquals(0, bucket.getReadingCount());
+    }
+
+    @Test
+    void shouldAddReadingToBucket() {
+        Timestamped reading = Models.newReading(1234567890L, 220.5, 5.2, 1146.6);
+        GenericBucket<Timestamped> bucket = Models.newBucket("MTR-001", 19500L);
+        
+        bucket.addReading(reading);
+        
+        assertEquals(1, bucket.getReadingCount());
+    }
+
+    @Test
+    void shouldDeduplicateReadingsByTimestamp() {
+        GenericBucket<Timestamped> bucket = Models.newBucket("MTR-001", 19500L);
+        
+        Timestamped reading1 = Models.newReading(1234567890L, 220.5, 5.2, 1146.6);
+        Timestamped reading2 = Models.newReading(1234567890L, 221.0, 5.3, 1171.3); // same timestamp
+        
+        bucket.addReading(reading1);
+        bucket.addReading(reading2);
+        
+        assertEquals(1, bucket.getReadingCount());
+        assertEquals(221.0, Models.getVoltage(bucket.getReadings()[0]), 0.001);
     }
 }

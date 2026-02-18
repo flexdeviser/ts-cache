@@ -1,18 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <datastore>
-  <model name="MeterReading" package="org.e4s.model.dynamic" timestampField="reportedTs">
-    <field name="reportedTs" type="long" timeKey="true"/>
+  <model name="MeterReading" package="org.e4s.model.dynamic" implements="Timestamped" timestampField="reportedTs">
+    <field name="reportedTs" type="long"/>
     <field name="voltage" type="double"/>
     <field name="current" type="double"/>
     <field name="power" type="double"/>
-  </model>
-  
-  <model name="MeterBucket" package="org.e4s.model.dynamic">
-    <field name="meterId" type="String"/>
-    <field name="bucketDateEpochDay" type="long"/>
-    <field name="readings" type="array" elementType="MeterReading"/>
-    <field name="readingCount" type="int"/>
-    <field name="lastAccessTime" type="long"/>
-    <field name="createdTime" type="long"/>
   </model>
 </datastore>
