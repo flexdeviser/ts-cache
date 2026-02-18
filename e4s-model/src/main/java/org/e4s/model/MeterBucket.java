@@ -111,20 +111,49 @@ public class MeterBucket {
         this.lastAccessTime = System.currentTimeMillis();
     }
 
+    /**
+     * Adds a reading to this bucket, replacing any existing reading with the same timestamp.
+     * 
+     * <p>This method performs deduplication based on {@code reportedTs}:
+     * <ul>
+     *   <li>If a reading with the same {@code reportedTs} exists, it is replaced</li>
+     *   <li>Otherwise, the new reading is appended to the array</li>
+     * </ul>
+     * 
+     * <p>Time complexity: O(n) where n is the current reading count. This is acceptable
+     * since buckets typically contain ~96 readings (15-minute intervals over 24 hours).
+     * 
+     * @param reading the meter reading to add or use as replacement
+     */
     public void addReading(MeterReading reading) {
+        long reportedTs = reading.getReportedTs();
+        for (int i = 0; i < readingCount; i++) {
+            if (readings[i].getReportedTs() == reportedTs) {
+                readings[i] = reading;
+                touch();
+                return;
+            }
+        }
         ensureCapacity(readingCount + 1);
         readings[readingCount++] = reading;
         touch();
     }
 
+    /**
+     * Adds multiple readings to this bucket with deduplication.
+     * 
+     * <p>Each reading is processed through {@link #addReading(MeterReading)},
+     * which handles duplicate timestamp replacement.
+     * 
+     * @param newReadings the readings to add
+     */
     public void addReadings(MeterReading[] newReadings) {
         if (newReadings == null || newReadings.length == 0) {
             return;
         }
-        ensureCapacity(readingCount + newReadings.length);
-        System.arraycopy(newReadings, 0, readings, readingCount, newReadings.length);
-        readingCount += newReadings.length;
-        touch();
+        for (MeterReading reading : newReadings) {
+            addReading(reading);
+        }
     }
 
     private void ensureCapacity(int minCapacity) {

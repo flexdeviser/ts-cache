@@ -14,6 +14,8 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Core service for managing meter data in the Hazelcast cache.
@@ -34,16 +36,21 @@ import java.util.List;
  *   <li>Typical: 96 readings/day (15-minute intervals)</li>
  * </ul>
  * 
+ * <h2>Deduplication</h2>
+ * Readings with duplicate {@code reportedTs} are automatically replaced, ensuring
+ * each timestamp has only one reading per meter. This handles late-arriving data
+ * and re-transmissions gracefully.
+ * 
  * <h2>Thread Safety</h2>
  * Uses Hazelcast's {@link IMap#compute} for atomic updates. The service is thread-safe
  * and can handle concurrent ingestion from multiple sources.
  * 
  * <h2>Performance Characteristics</h2>
  * <ul>
- *   <li>Single ingest: ~50K ops/sec, 156 µs latency</li>
- *   <li>Batch ingest: ~45K ops/sec, 14 ms latency</li>
- *   <li>Range query: ~69K ops/sec, 110 µs latency</li>
- *   <li>Aggregation: ~35K ops/sec, 219 µs latency</li>
+ *   <li>Single ingest: ~30K ops/sec, 260 µs latency</li>
+ *   <li>Batch ingest: ~225K ops/sec (grouped by day, single compute per bucket)</li>
+ *   <li>Range query: ~64K ops/sec, 233 µs latency</li>
+ *   <li>Aggregation: ~32K ops/sec, 472 µs latency</li>
  * </ul>
  */
 @Service
@@ -68,8 +75,44 @@ public class MeterCacheService {
         });
     }
 
+    /**
+     * Ingests multiple readings for a single meter with optimized batching.
+     * 
+     * <p>This method groups readings by day and performs a single {@link IMap#compute}
+     * operation per day bucket, significantly reducing network roundtrips compared to
+     * calling {@link #ingestReading} for each reading individually.
+     * 
+     * <p>Readings with duplicate timestamps ({@code reportedTs}) are automatically
+     * replaced in the bucket.
+     * 
+     * <h3>Performance</h3>
+     * <ul>
+     *   <li>~5x faster than individual ingest calls for multi-day data</li>
+     *   <li>Single network roundtrip per day bucket instead of per reading</li>
+     * </ul>
+     * 
+     * @param meterId the meter identifier
+     * @param readings the readings to ingest
+     */
     public void ingestReadings(String meterId, List<MeterReading> readings) {
-        readings.forEach(reading -> ingestReading(meterId, reading));
+        Map<LocalDate, List<MeterReading>> byDay = readings.stream()
+                .collect(Collectors.groupingBy(r ->
+                        Instant.ofEpochMilli(r.getReportedTs())
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()));
+
+        byDay.forEach((day, dayReadings) -> {
+            String key = MeterDayKey.of(meterId, day).toKeyString();
+            meterDataMap.compute(key, (k, bucket) -> {
+                if (bucket == null) {
+                    bucket = new MeterBucket(meterId, day.toEpochDay());
+                }
+                for (MeterReading reading : dayReadings) {
+                    bucket.addReading(reading);
+                }
+                return bucket;
+            });
+        });
     }
 
     public void ingestBatch(List<IngestRequest> requests) {

@@ -18,6 +18,8 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Native Hazelcast client implementation with client-side serialization.
@@ -120,11 +122,41 @@ public class E4sHzClient implements E4sClient {
             bucket.addReading(reading);
             return bucket;
         });
+
     }
 
+    /**
+     * Ingests multiple readings for a single meter with optimized batching.
+     * 
+     * <p>This method groups readings by day and performs a single {@link IMap#compute}
+     * operation per day bucket, significantly reducing network roundtrips.
+     * 
+     * <p>Readings with duplicate timestamps ({@code reportedTs}) are automatically
+     * replaced in the bucket.
+     * 
+     * @param meterId the meter identifier
+     * @param readings the readings to ingest
+     */
     @Override
     public void ingestReadings(String meterId, List<MeterReading> readings) {
-        readings.forEach(reading -> ingestReading(meterId, reading));
+        Map<LocalDate, List<MeterReading>> byDay = readings.stream()
+                .collect(Collectors.groupingBy(r ->
+                        Instant.ofEpochMilli(r.getReportedTs())
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()));
+
+        byDay.forEach((day, dayReadings) -> {
+            String key = MeterDayKey.of(meterId, day).toKeyString();
+            meterDataMap.compute(key, (k, bucket) -> {
+                if (bucket == null) {
+                    bucket = new MeterBucket(meterId, day.toEpochDay());
+                }
+                for (MeterReading reading : dayReadings) {
+                    bucket.addReading(reading);
+                }
+                return bucket;
+            });
+        });
     }
 
     @Override
@@ -253,5 +285,10 @@ public class E4sHzClient implements E4sClient {
 
     public HazelcastInstance getHazelcastClient() {
         return hazelcastClient;
+    }
+
+
+    public IMap<String, MeterBucket> getMeterDataMap() {
+        return meterDataMap;
     }
 }
