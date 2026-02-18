@@ -3,6 +3,34 @@ package org.e4s.model;
 import java.time.LocalDate;
 import java.util.Objects;
 
+/**
+ * Composite key for identifying a daily meter bucket in the cache.
+ * 
+ * <p>The key format is "meterId:YYYY-MM-DD" (e.g., "MTR-001:2026-02-18").
+ * This design enables:
+ * <ul>
+ *   <li>Efficient prefix scanning for time-range queries on a single meter</li>
+ *   <li>Natural partitioning by day for eviction operations</li>
+ *   <li>Human-readable keys for debugging and monitoring</li>
+ * </ul>
+ * 
+ * <p>Key storage optimization:
+ * <ul>
+ *   <li>Stores day as epoch day (long) instead of LocalDate object</li>
+ *   <li>Epoch day uses 8 bytes vs ~24 bytes for LocalDate</li>
+ * </ul>
+ * 
+ * <p>Example usage:
+ * <pre>{@code
+ * MeterDayKey key = MeterDayKey.of("MTR-001", LocalDate.of(2026, 2, 18));
+ * String keyString = key.toKeyString(); // "MTR-001:2026-02-18"
+ * 
+ * // Parse from string
+ * MeterDayKey parsed = MeterDayKey.parse("MTR-001:2026-02-18");
+ * }</pre>
+ * 
+ * @see MeterBucket
+ */
 public class MeterDayKey {
 
     private String meterId;

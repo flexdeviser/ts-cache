@@ -17,7 +17,18 @@
     <packaging>pom</packaging>
 
     <name>ts-cache</name>
-    <description>In Memory Timeseries Cache System</description>
+    <description>
+        Time-Series Hot Cache System for meter data.
+        
+        A high-performance in-memory cache designed to hold 21 days of meter readings
+        for ~1M meters (~21M daily buckets). Uses Hazelcast with Kryo + Deflater 
+        serialization for ~90% memory reduction.
+        
+        Modules:
+        - e4s-model: Shared data models and Kryo serializers
+        - e4s-server: Hazelcast-based cache server with REST API
+        - e4s-client: HTTP client library for accessing the cache
+    </description>
 
     <modules>
         <module>e4s-model</module>

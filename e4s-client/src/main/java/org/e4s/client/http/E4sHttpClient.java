@@ -14,6 +14,46 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * HTTP-based implementation of {@link E4sClient} using REST API.
+ * 
+ * <p>This client communicates with the e4s-server via HTTP REST endpoints,
+ * using JSON for serialization. It is suitable for:
+ * <ul>
+ *   <li>Cross-language clients (any language with HTTP support)</li>
+ *   <li>Remote clients that cannot connect directly to Hazelcast cluster</li>
+ *   <li>Situations where firewall/network restricts direct Hazelcast access</li>
+ * </ul>
+ * 
+ * <h2>Configuration</h2>
+ * Default timeouts:
+ * <ul>
+ *   <li>Connect: 10 seconds</li>
+ *   <li>Read: 30 seconds</li>
+ *   <li>Write: 30 seconds</li>
+ * </ul>
+ * 
+ * <h2>Performance</h2>
+ * Compared to native Hazelcast client:
+ * <ul>
+ *   <li>Lower throughput due to HTTP overhead and JSON serialization</li>
+ *   <li>Higher latency due to server-side JSON parsing</li>
+ *   <li>Larger network payload (JSON vs binary)</li>
+ * </ul>
+ * 
+ * <h2>Usage</h2>
+ * <pre>{@code
+ * E4sClient client = new E4sHttpClient("http://localhost:8080");
+ * 
+ * // Use client...
+ * client.ingestReading("MTR-001", reading);
+ * 
+ * // Close when done (or use try-with-resources)
+ * client.close();
+ * }</pre>
+ * 
+ * @see E4sClient
+ */
 public class E4sHttpClient implements E4sClient {
 
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");

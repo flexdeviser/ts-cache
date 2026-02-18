@@ -1,5 +1,32 @@
 package org.e4s.model;
 
+/**
+ * A daily bucket that stores all meter readings for a single meter on a single day.
+ * 
+ * <p>This is the primary storage unit in the cache system. Each bucket contains:
+ * <ul>
+ *   <li>meterId - The unique identifier for the meter</li>
+ *   <li>bucketDateEpochDay - The date of this bucket (stored as epoch day for efficiency)</li>
+ *   <li>readings - Array of readings for this day (typically 96 for 15-minute intervals)</li>
+ *   <li>readingCount - Number of readings in the array</li>
+ *   <li>lastAccessTime - Timestamp of last read/write (for eviction decisions)</li>
+ *   <li>createdTime - Timestamp when bucket was created (for age-based eviction)</li>
+ * </ul>
+ * 
+ * <p>Memory optimization strategies:
+ * <ul>
+ *   <li>Uses primitive array instead of ArrayList to avoid capacity overhead</li>
+ *   <li>Stores date as epoch day (long) instead of LocalDate object</li>
+ *   <li>Provides {@link #trimToSize()} to release unused array capacity before serialization</li>
+ *   <li>Typical compressed size: ~1.5-2 KB for 96 readings</li>
+ * </ul>
+ * 
+ * <p>Key design: The composite key format is "meterId:YYYY-MM-DD" (e.g., "MTR-001:2026-02-18").
+ * This enables efficient prefix scanning for time-range queries on a single meter.
+ * 
+ * @see MeterReading
+ * @see MeterDayKey
+ */
 public class MeterBucket {
 
     private String meterId;

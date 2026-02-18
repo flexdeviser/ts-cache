@@ -15,6 +15,37 @@ import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
+/**
+ * Hazelcast StreamSerializer for {@link MeterBucket} using Kryo + Deflater compression.
+ * 
+ * <p>This is the primary serializer for in-memory storage, providing ~90% memory reduction:
+ * <ol>
+ *   <li><b>Kryo serialization:</b> ~3 KB per bucket (vs ~20 KB with Java serialization)</li>
+ *   <li><b>Deflater compression:</b> ~1.5-2 KB per bucket (additional ~50% reduction)</li>
+ * </ol>
+ * 
+ * <p>Memory savings breakdown:
+ * <pre>
+ * Java serialization:  ~20 KB per bucket (96 readings)
+ * Kryo only:          ~3 KB per bucket (85% reduction)
+ * Kryo + Deflater:    ~1.5-2 KB per bucket (90%+ reduction)
+ * </pre>
+ * 
+ * <p>The compression is particularly effective because:
+ * <ul>
+ *   <li>Time-series data has similar values that compress well</li>
+ *   <li>Timestamps follow predictable patterns (15-minute intervals)</li>
+ *   <li>Voltage/current/power values have limited variance within a day</li>
+ * </ul>
+ * 
+ * <p>Thread safety: Uses ThreadLocal Kryo pool for thread-safe, lock-free operation.
+ * 
+ * <p>Important: Calls {@link MeterBucket#trimToSize()} before serialization to release
+ * unused array capacity, ensuring minimal serialized size.
+ * 
+ * @see MeterReadingHazelcastSerializer
+ * @see KryoFactory
+ */
 public class MeterBucketHazelcastSerializer implements StreamSerializer<MeterBucket> {
 
     public static final int TYPE_ID = 2002;

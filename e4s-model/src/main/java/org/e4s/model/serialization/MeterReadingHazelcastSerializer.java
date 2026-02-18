@@ -15,6 +15,30 @@ import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
+/**
+ * Hazelcast StreamSerializer for {@link MeterReading} using Kryo + Deflater compression.
+ * 
+ * <p>This serializer combines two optimization techniques:
+ * <ol>
+ *   <li><b>Kryo serialization:</b> Efficient binary format (32 bytes per reading)</li>
+ *   <li><b>Deflater compression:</b> ZLIB compression for additional size reduction</li>
+ * </ol>
+ * 
+ * <p>Compression configuration:
+ * <ul>
+ *   <li>Level 6: Balanced between compression ratio and CPU usage</li>
+ *   <li>Typical compression ratio: ~50% for time-series data (similar values compress well)</li>
+ * </ul>
+ * 
+ * <p>Thread safety: Uses ThreadLocal Kryo pool for thread-safe, lock-free operation.
+ * Each thread gets its own Kryo instance, avoiding synchronization overhead.
+ * 
+ * <p>Note: For single readings, compression overhead may exceed benefits.
+ * This serializer is primarily used for consistency with bucket serialization.
+ * 
+ * @see MeterBucketHazelcastSerializer
+ * @see KryoFactory
+ */
 public class MeterReadingHazelcastSerializer implements StreamSerializer<MeterReading> {
 
     public static final int TYPE_ID = 2001;

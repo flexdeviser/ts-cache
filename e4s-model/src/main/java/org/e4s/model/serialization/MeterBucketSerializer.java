@@ -7,6 +7,30 @@ import com.esotericsoftware.kryo.Serializer;
 import org.e4s.model.MeterBucket;
 import org.e4s.model.MeterReading;
 
+/**
+ * Kryo serializer for {@link MeterBucket} objects.
+ * 
+ * <p>This custom serializer optimizes storage by:
+ * <ul>
+ *   <li>Writing reading count instead of array length (avoids sparse array serialization)</li>
+ *   <li>Serializing readings inline without array wrapper overhead</li>
+ *   <li>Using primitive writes for timestamp and measurement values</li>
+ * </ul>
+ * 
+ * <p>Binary format:
+ * <pre>
+ * | Field            | Type                    | Notes                        |
+ * |------------------|-------------------------|------------------------------|
+ * | meterId          | String (var len)        | Meter identifier             |
+ * | bucketDate       | long                    | Epoch day                    |
+ * | readingCount     | int                     | Number of readings           |
+ * | readings[]       | MeterReading[count]     | Inline reading data (32b ea) |
+ * | lastAccessTime   | long                    | For eviction decisions       |
+ * | createdTime      | long                    | For eviction decisions       |
+ * </pre>
+ * 
+ * <p>Typical size for 96 readings: ~3 KB uncompressed, ~1.5-2 KB after Deflater compression.
+ */
 public class MeterBucketSerializer extends Serializer<MeterBucket> {
 
     @Override
