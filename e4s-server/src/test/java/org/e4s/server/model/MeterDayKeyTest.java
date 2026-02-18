@@ -1,5 +1,6 @@
 package org.e4s.server.model;
 
+import org.e4s.model.MeterDayKey;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -11,7 +12,7 @@ class MeterDayKeyTest {
     @Test
     void testCreateKey() {
         LocalDate date = LocalDate.of(2026, 2, 18);
-        MeterDayKey key = new MeterDayKey("MTR-001", date);
+        MeterDayKey key = new MeterDayKey("MTR-001", date.toEpochDay());
 
         assertEquals("MTR-001", key.getMeterId());
         assertEquals(date, key.getDay());
@@ -76,7 +77,7 @@ class MeterDayKeyTest {
     void testSetters() {
         MeterDayKey key = new MeterDayKey();
         key.setMeterId("MTR-003");
-        key.setDay(LocalDate.of(2026, 2, 19));
+        key.setDayEpochDay(LocalDate.of(2026, 2, 19).toEpochDay());
 
         assertEquals("MTR-003", key.getMeterId());
         assertEquals(LocalDate.of(2026, 2, 19), key.getDay());

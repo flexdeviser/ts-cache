@@ -5,10 +5,10 @@ import com.hazelcast.config.MapConfig;
 import com.hazelcast.config.SerializerConfig;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
-import org.e4s.server.model.MeterBucketV2;
-import org.e4s.server.model.MeterReadingV2;
-import org.e4s.server.serialization.MeterBucketV2Serializer;
-import org.e4s.server.serialization.MeterReadingV2Serializer;
+import org.e4s.model.MeterBucket;
+import org.e4s.model.MeterReading;
+import org.e4s.model.serialization.MeterBucketHazelcastSerializer;
+import org.e4s.model.serialization.MeterReadingHazelcastSerializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -24,14 +24,14 @@ public class HazelcastConfig {
 
         config.getSerializationConfig().addSerializerConfig(
                 new SerializerConfig()
-                        .setTypeClass(MeterReadingV2.class)
-                        .setImplementation(new MeterReadingV2Serializer())
+                        .setTypeClass(MeterReading.class)
+                        .setImplementation(new MeterReadingHazelcastSerializer())
         );
 
         config.getSerializationConfig().addSerializerConfig(
                 new SerializerConfig()
-                        .setTypeClass(MeterBucketV2.class)
-                        .setImplementation(new MeterBucketV2Serializer())
+                        .setTypeClass(MeterBucket.class)
+                        .setImplementation(new MeterBucketHazelcastSerializer())
         );
 
         MapConfig meterDataMapConfig = new MapConfig(METER_DATA_MAP);

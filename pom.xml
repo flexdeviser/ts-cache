@@ -20,7 +20,9 @@
     <description>In Memory Timeseries Cache System</description>
 
     <modules>
+        <module>e4s-model</module>
         <module>e4s-server</module>
+        <module>e4s-client</module>
     </modules>
 
     <properties>

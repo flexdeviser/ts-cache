@@ -1,7 +1,7 @@
 package org.e4s.server.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.e4s.server.model.MeterReadingV2;
+import org.e4s.model.MeterReading;
 import org.e4s.server.service.MeterCacheService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,9 +37,9 @@ class QueryControllerTest {
         Instant start = Instant.parse("2026-02-18T00:00:00Z");
         Instant end = Instant.parse("2026-02-18T23:59:59Z");
 
-        List<MeterReadingV2> readings = Arrays.asList(
-                new MeterReadingV2(Instant.parse("2026-02-18T10:00:00Z").toEpochMilli(), 220.5, 5.2, 1146.6),
-                new MeterReadingV2(Instant.parse("2026-02-18T10:15:00Z").toEpochMilli(), 221.0, 5.3, 1171.3)
+        List<MeterReading> readings = Arrays.asList(
+                new MeterReading(Instant.parse("2026-02-18T10:00:00Z").toEpochMilli(), 220.5, 5.2, 1146.6),
+                new MeterReading(Instant.parse("2026-02-18T10:15:00Z").toEpochMilli(), 221.0, 5.3, 1171.3)
         );
 
         when(meterCacheService.queryRange("MTR-001", start, end)).thenReturn(readings);

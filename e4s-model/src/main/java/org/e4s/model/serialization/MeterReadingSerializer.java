@@ -1,15 +1,15 @@
-package org.e4s.server.serialization;
+package org.e4s.model.serialization;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.esotericsoftware.kryo.Serializer;
-import org.e4s.server.model.MeterReadingV2;
+import org.e4s.model.MeterReading;
 
-public class MeterReadingV2KryoSerializer extends Serializer<MeterReadingV2> {
+public class MeterReadingSerializer extends Serializer<MeterReading> {
 
     @Override
-    public void write(Kryo kryo, Output output, MeterReadingV2 reading) {
+    public void write(Kryo kryo, Output output, MeterReading reading) {
         output.writeLong(reading.getReportedTs());
         output.writeDouble(reading.getVoltage());
         output.writeDouble(reading.getCurrent());
@@ -17,12 +17,12 @@ public class MeterReadingV2KryoSerializer extends Serializer<MeterReadingV2> {
     }
 
     @Override
-    public MeterReadingV2 read(Kryo kryo, Input input, Class<? extends MeterReadingV2> type) {
+    public MeterReading read(Kryo kryo, Input input, Class<? extends MeterReading> type) {
         long reportedTs = input.readLong();
         double voltage = input.readDouble();
         double current = input.readDouble();
         double power = input.readDouble();
-        return new MeterReadingV2(reportedTs, voltage, current, power);
+        return new MeterReading(reportedTs, voltage, current, power);
     }
 
     @Override

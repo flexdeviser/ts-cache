@@ -2,10 +2,10 @@ package org.e4s.server.service;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
+import org.e4s.model.MeterBucket;
+import org.e4s.model.MeterDayKey;
+import org.e4s.model.MeterReading;
 import org.e4s.server.config.HazelcastConfig;
-import org.e4s.server.model.MeterBucketV2;
-import org.e4s.server.model.MeterDayKey;
-import org.e4s.server.model.MeterReadingV2;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -18,26 +18,26 @@ import java.util.List;
 @Service
 public class MeterCacheService {
 
-    private final IMap<String, MeterBucketV2> meterDataMap;
+    private final IMap<String, MeterBucket> meterDataMap;
 
     public MeterCacheService(HazelcastInstance hazelcastInstance) {
         this.meterDataMap = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
     }
 
-    public void ingestReading(String meterId, MeterReadingV2 reading) {
+    public void ingestReading(String meterId, MeterReading reading) {
         LocalDate day = Instant.ofEpochMilli(reading.getReportedTs()).atZone(ZoneOffset.UTC).toLocalDate();
         String key = MeterDayKey.of(meterId, day).toKeyString();
 
         meterDataMap.compute(key, (k, bucket) -> {
             if (bucket == null) {
-                bucket = new MeterBucketV2(meterId, day.toEpochDay());
+                bucket = new MeterBucket(meterId, day.toEpochDay());
             }
             bucket.addReading(reading);
             return bucket;
         });
     }
 
-    public void ingestReadings(String meterId, List<MeterReadingV2> readings) {
+    public void ingestReadings(String meterId, List<MeterReading> readings) {
         readings.forEach(reading -> ingestReading(meterId, reading));
     }
 
@@ -45,21 +45,21 @@ public class MeterCacheService {
         requests.forEach(req -> ingestReadings(req.getMeterId(), req.getReadings()));
     }
 
-    public List<MeterReadingV2> queryRange(String meterId, Instant start, Instant end) {
-        List<MeterReadingV2> result = new ArrayList<>();
+    public List<MeterReading> queryRange(String meterId, Instant start, Instant end) {
+        List<MeterReading> result = new ArrayList<>();
         LocalDate startDay = start.atZone(ZoneOffset.UTC).toLocalDate();
         LocalDate endDay = end.atZone(ZoneOffset.UTC).toLocalDate();
 
         LocalDate currentDay = startDay;
         while (!currentDay.isAfter(endDay)) {
             String key = MeterDayKey.of(meterId, currentDay).toKeyString();
-            MeterBucketV2 bucket = meterDataMap.get(key);
+            MeterBucket bucket = meterDataMap.get(key);
             if (bucket != null) {
                 long startTs = start.toEpochMilli();
                 long endTs = end.toEpochMilli();
-                MeterReadingV2[] readings = bucket.getReadings();
+                MeterReading[] readings = bucket.getReadings();
                 for (int i = 0; i < bucket.getReadingCount(); i++) {
-                    MeterReadingV2 r = readings[i];
+                    MeterReading r = readings[i];
                     if (r.getReportedTs() >= startTs && r.getReportedTs() <= endTs) {
                         result.add(r);
                     }
@@ -68,13 +68,13 @@ public class MeterCacheService {
             currentDay = currentDay.plusDays(1);
         }
 
-        result.sort(Comparator.comparingLong(MeterReadingV2::getReportedTs));
+        result.sort(Comparator.comparingLong(MeterReading::getReportedTs));
         return result;
     }
 
     public AggregationResult queryAggregation(String meterId, Instant start, Instant end,
                                                AggregationType type, Interval interval) {
-        List<MeterReadingV2> readings = queryRange(meterId, start, end);
+        List<MeterReading> readings = queryRange(meterId, start, end);
 
         AggregationResult result = new AggregationResult();
         result.setMeterId(meterId);
@@ -88,7 +88,7 @@ public class MeterCacheService {
         switch (type) {
             case AVG -> {
                 double sum = 0;
-                for (MeterReadingV2 r : readings) {
+                for (MeterReading r : readings) {
                     sum += r.getPower();
                 }
                 result.setValue(sum / readings.size());
@@ -96,7 +96,7 @@ public class MeterCacheService {
             }
             case SUM -> {
                 double sum = 0;
-                for (MeterReadingV2 r : readings) {
+                for (MeterReading r : readings) {
                     sum += r.getPower();
                 }
                 result.setValue(sum);
@@ -104,7 +104,7 @@ public class MeterCacheService {
             }
             case MIN -> {
                 double min = Double.MAX_VALUE;
-                for (MeterReadingV2 r : readings) {
+                for (MeterReading r : readings) {
                     if (r.getPower() < min) {
                         min = r.getPower();
                     }
@@ -114,7 +114,7 @@ public class MeterCacheService {
             }
             case MAX -> {
                 double max = Double.MIN_VALUE;
-                for (MeterReadingV2 r : readings) {
+                for (MeterReading r : readings) {
                     if (r.getPower() > max) {
                         max = r.getPower();
                     }
@@ -164,7 +164,7 @@ public class MeterCacheService {
         List<String> keysToEvict = new ArrayList<>();
 
         for (String key : meterDataMap.keySet()) {
-            MeterBucketV2 bucket = meterDataMap.get(key);
+            MeterBucket bucket = meterDataMap.get(key);
             if (bucket != null) {
                 long age = now - bucket.getCreatedTime();
                 long idle = now - bucket.getLastAccessTime();
@@ -181,7 +181,7 @@ public class MeterCacheService {
 
     public static class IngestRequest {
         private String meterId;
-        private List<MeterReadingV2> readings;
+        private List<MeterReading> readings;
 
         public String getMeterId() {
             return meterId;
@@ -191,11 +191,11 @@ public class MeterCacheService {
             this.meterId = meterId;
         }
 
-        public List<MeterReadingV2> getReadings() {
+        public List<MeterReading> getReadings() {
             return readings;
         }
 
-        public void setReadings(List<MeterReadingV2> readings) {
+        public void setReadings(List<MeterReading> readings) {
             this.readings = readings;
         }
     }

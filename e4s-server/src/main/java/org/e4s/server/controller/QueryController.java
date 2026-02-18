@@ -1,6 +1,6 @@
 package org.e4s.server.controller;
 
-import org.e4s.server.model.MeterReadingV2;
+import org.e4s.model.MeterReading;
 import org.e4s.server.service.MeterCacheService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,7 +23,7 @@ public class QueryController {
             @PathVariable String meterId,
             @RequestParam Instant start,
             @RequestParam Instant end) {
-        List<MeterReadingV2> readings = meterCacheService.queryRange(meterId, start, end);
+        List<MeterReading> readings = meterCacheService.queryRange(meterId, start, end);
         return ResponseEntity.ok(new QueryResponse(meterId, readings.size(), readings));
     }
 
@@ -42,9 +42,9 @@ public class QueryController {
     public static class QueryResponse {
         private String meterId;
         private int count;
-        private List<MeterReadingV2> readings;
+        private List<MeterReading> readings;
 
-        public QueryResponse(String meterId, int count, List<MeterReadingV2> readings) {
+        public QueryResponse(String meterId, int count, List<MeterReading> readings) {
             this.meterId = meterId;
             this.count = count;
             this.readings = readings;
@@ -66,11 +66,11 @@ public class QueryController {
             this.count = count;
         }
 
-        public List<MeterReadingV2> getReadings() {
+        public List<MeterReading> getReadings() {
             return readings;
         }
 
-        public void setReadings(List<MeterReadingV2> readings) {
+        public void setReadings(List<MeterReading> readings) {
             this.readings = readings;
         }
     }

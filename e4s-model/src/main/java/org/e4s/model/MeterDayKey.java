@@ -1,24 +1,24 @@
-package org.e4s.server.model;
+package org.e4s.model;
 
-import java.io.Serial;
-import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.Objects;
 
-public class MeterDayKey implements Serializable {
-
-    @Serial
-    private static final long serialVersionUID = 1L;
+public class MeterDayKey {
 
     private String meterId;
-    private LocalDate day;
+    private long dayEpochDay;
 
     public MeterDayKey() {
     }
 
+    public MeterDayKey(String meterId, long dayEpochDay) {
+        this.meterId = meterId;
+        this.dayEpochDay = dayEpochDay;
+    }
+
     public MeterDayKey(String meterId, LocalDate day) {
         this.meterId = meterId;
-        this.day = day;
+        this.dayEpochDay = day.toEpochDay();
     }
 
     public static MeterDayKey of(String meterId, LocalDate day) {
@@ -30,7 +30,7 @@ public class MeterDayKey implements Serializable {
         if (parts.length != 2) {
             throw new IllegalArgumentException("Invalid key format: " + key);
         }
-        return new MeterDayKey(parts[0], LocalDate.parse(parts[1]));
+        return new MeterDayKey(parts[0], LocalDate.parse(parts[1]).toEpochDay());
     }
 
     public String getMeterId() {
@@ -41,16 +41,20 @@ public class MeterDayKey implements Serializable {
         this.meterId = meterId;
     }
 
-    public LocalDate getDay() {
-        return day;
+    public long getDayEpochDay() {
+        return dayEpochDay;
     }
 
-    public void setDay(LocalDate day) {
-        this.day = day;
+    public void setDayEpochDay(long dayEpochDay) {
+        this.dayEpochDay = dayEpochDay;
+    }
+
+    public LocalDate getDay() {
+        return LocalDate.ofEpochDay(dayEpochDay);
     }
 
     public String toKeyString() {
-        return meterId + ":" + day;
+        return meterId + ":" + getDay().toString();
     }
 
     @Override
@@ -58,12 +62,12 @@ public class MeterDayKey implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         MeterDayKey that = (MeterDayKey) o;
-        return Objects.equals(meterId, that.meterId) && Objects.equals(day, that.day);
+        return dayEpochDay == that.dayEpochDay && Objects.equals(meterId, that.meterId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(meterId, day);
+        return Objects.hash(meterId, dayEpochDay);
     }
 
     @Override

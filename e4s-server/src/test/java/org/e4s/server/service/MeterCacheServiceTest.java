@@ -3,9 +3,10 @@ package org.e4s.server.service;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
+import org.e4s.model.MeterBucket;
+import org.e4s.model.MeterDayKey;
+import org.e4s.model.MeterReading;
 import org.e4s.server.config.HazelcastConfig;
-import org.e4s.server.model.MeterBucketV2;
-import org.e4s.server.model.MeterReadingV2;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,16 +39,16 @@ class MeterCacheServiceTest {
     @Test
     void testIngestSingleReading() {
         long now = System.currentTimeMillis();
-        MeterReadingV2 reading = new MeterReadingV2(now, 220.5, 5.2, 1146.6);
+        MeterReading reading = new MeterReading(now, 220.5, 5.2, 1146.6);
 
         meterCacheService.ingestReading("MTR-001", reading);
 
-        IMap<String, MeterBucketV2> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
+        IMap<String, MeterBucket> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
         assertEquals(1, map.size());
 
         LocalDate day = Instant.ofEpochMilli(now).atZone(ZoneOffset.UTC).toLocalDate();
         String expectedKey = "MTR-001:" + day;
-        MeterBucketV2 bucket = map.get(expectedKey);
+        MeterBucket bucket = map.get(expectedKey);
         assertNotNull(bucket);
         assertEquals("MTR-001", bucket.getMeterId());
         assertEquals(1, bucket.getReadingCount());
@@ -57,16 +58,16 @@ class MeterCacheServiceTest {
     void testIngestMultipleReadingsForSameDay() {
         long base = System.currentTimeMillis();
         for (int i = 0; i < 5; i++) {
-            MeterReadingV2 reading = new MeterReadingV2(
+            MeterReading reading = new MeterReading(
                     base + i * 15 * 60 * 1000,
                     1.0, 1.0, 1.0);
             meterCacheService.ingestReading("MTR-001", reading);
         }
 
-        IMap<String, MeterBucketV2> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
+        IMap<String, MeterBucket> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
         assertEquals(1, map.size());
         
-        MeterBucketV2 bucket = map.values().iterator().next();
+        MeterBucket bucket = map.values().iterator().next();
         assertEquals(5, bucket.getReadingCount());
     }
 
@@ -75,24 +76,24 @@ class MeterCacheServiceTest {
         long day1 = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         long day2 = Instant.parse("2026-02-19T10:00:00Z").toEpochMilli();
 
-        meterCacheService.ingestReading("MTR-001", new MeterReadingV2(day1, 1.0, 1.0, 1.0));
-        meterCacheService.ingestReading("MTR-001", new MeterReadingV2(day2, 1.0, 1.0, 1.0));
+        meterCacheService.ingestReading("MTR-001", new MeterReading(day1, 1.0, 1.0, 1.0));
+        meterCacheService.ingestReading("MTR-001", new MeterReading(day2, 1.0, 1.0, 1.0));
 
-        IMap<String, MeterBucketV2> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
+        IMap<String, MeterBucket> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
         assertEquals(2, map.size());
     }
 
     @Test
     void testIngestReadingsBatch() {
-        List<MeterReadingV2> readings = Arrays.asList(
-                new MeterReadingV2(System.currentTimeMillis(), 1.0, 1.0, 1.0),
-                new MeterReadingV2(System.currentTimeMillis() + 900000, 1.0, 1.0, 1.0),
-                new MeterReadingV2(System.currentTimeMillis() + 1800000, 1.0, 1.0, 1.0)
+        List<MeterReading> readings = Arrays.asList(
+                new MeterReading(System.currentTimeMillis(), 1.0, 1.0, 1.0),
+                new MeterReading(System.currentTimeMillis() + 900000, 1.0, 1.0, 1.0),
+                new MeterReading(System.currentTimeMillis() + 1800000, 1.0, 1.0, 1.0)
         );
 
         meterCacheService.ingestReadings("MTR-001", readings);
 
-        IMap<String, MeterBucketV2> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
+        IMap<String, MeterBucket> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
         assertEquals(1, map.size());
         assertEquals(3, map.values().iterator().next().getReadingCount());
     }
@@ -102,18 +103,18 @@ class MeterCacheServiceTest {
         MeterCacheService.IngestRequest request1 = new MeterCacheService.IngestRequest();
         request1.setMeterId("MTR-001");
         request1.setReadings(Arrays.asList(
-                new MeterReadingV2(System.currentTimeMillis(), 1.0, 1.0, 1.0)
+                new MeterReading(System.currentTimeMillis(), 1.0, 1.0, 1.0)
         ));
 
         MeterCacheService.IngestRequest request2 = new MeterCacheService.IngestRequest();
         request2.setMeterId("MTR-002");
         request2.setReadings(Arrays.asList(
-                new MeterReadingV2(System.currentTimeMillis(), 1.0, 1.0, 1.0)
+                new MeterReading(System.currentTimeMillis(), 1.0, 1.0, 1.0)
         ));
 
         meterCacheService.ingestBatch(Arrays.asList(request1, request2));
 
-        IMap<String, MeterBucketV2> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
+        IMap<String, MeterBucket> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
         assertEquals(2, map.size());
     }
 
@@ -121,13 +122,13 @@ class MeterCacheServiceTest {
     void testQueryRangeSingleDay() {
         long base = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         for (int i = 0; i < 10; i++) {
-            MeterReadingV2 reading = new MeterReadingV2(
+            MeterReading reading = new MeterReading(
                     base + i * 15 * 60 * 1000,
                     1.0, 1.0, 1.0);
             meterCacheService.ingestReading("MTR-001", reading);
         }
 
-        List<MeterReadingV2> result = meterCacheService.queryRange("MTR-001",
+        List<MeterReading> result = meterCacheService.queryRange("MTR-001",
                 Instant.ofEpochMilli(base), Instant.ofEpochMilli(base + 3 * 60 * 60 * 1000));
 
         assertEquals(10, result.size());
@@ -138,10 +139,10 @@ class MeterCacheServiceTest {
         long day1 = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         long day2 = Instant.parse("2026-02-19T10:00:00Z").toEpochMilli();
 
-        meterCacheService.ingestReading("MTR-001", new MeterReadingV2(day1, 1.0, 1.0, 1.0));
-        meterCacheService.ingestReading("MTR-001", new MeterReadingV2(day2, 1.0, 1.0, 1.0));
+        meterCacheService.ingestReading("MTR-001", new MeterReading(day1, 1.0, 1.0, 1.0));
+        meterCacheService.ingestReading("MTR-001", new MeterReading(day2, 1.0, 1.0, 1.0));
 
-        List<MeterReadingV2> result = meterCacheService.queryRange("MTR-001",
+        List<MeterReading> result = meterCacheService.queryRange("MTR-001",
                 Instant.ofEpochMilli(day1 - 3600000), Instant.ofEpochMilli(day2 + 3600000));
 
         assertEquals(2, result.size());
@@ -149,7 +150,7 @@ class MeterCacheServiceTest {
 
     @Test
     void testQueryRangeEmptyResult() {
-        List<MeterReadingV2> result = meterCacheService.queryRange("MTR-999",
+        List<MeterReading> result = meterCacheService.queryRange("MTR-999",
                 Instant.now().minus(1, ChronoUnit.DAYS), Instant.now());
 
         assertTrue(result.isEmpty());
@@ -159,7 +160,7 @@ class MeterCacheServiceTest {
     void testQueryAggregationAvg() {
         long base = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         for (int i = 0; i < 5; i++) {
-            MeterReadingV2 reading = new MeterReadingV2(
+            MeterReading reading = new MeterReading(
                     base + i * 15 * 60 * 1000,
                     1.0, 1.0, 100 + i * 10);
             meterCacheService.ingestReading("MTR-001", reading);
@@ -180,7 +181,7 @@ class MeterCacheServiceTest {
     void testQueryAggregationSum() {
         long base = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         for (int i = 0; i < 3; i++) {
-            MeterReadingV2 reading = new MeterReadingV2(
+            MeterReading reading = new MeterReading(
                     base + i * 15 * 60 * 1000,
                     1.0, 1.0, 100);
             meterCacheService.ingestReading("MTR-001", reading);
@@ -199,7 +200,7 @@ class MeterCacheServiceTest {
     void testQueryAggregationMin() {
         long base = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         for (int i = 0; i < 3; i++) {
-            MeterReadingV2 reading = new MeterReadingV2(
+            MeterReading reading = new MeterReading(
                     base + i * 15 * 60 * 1000,
                     1.0, 1.0, 100 + i * 50);
             meterCacheService.ingestReading("MTR-001", reading);
@@ -217,7 +218,7 @@ class MeterCacheServiceTest {
     void testQueryAggregationMax() {
         long base = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         for (int i = 0; i < 3; i++) {
-            MeterReadingV2 reading = new MeterReadingV2(
+            MeterReading reading = new MeterReading(
                     base + i * 15 * 60 * 1000,
                     1.0, 1.0, 100 + i * 50);
             meterCacheService.ingestReading("MTR-001", reading);
@@ -235,7 +236,7 @@ class MeterCacheServiceTest {
     void testQueryAggregationCount() {
         long base = Instant.parse("2026-02-18T10:00:00Z").toEpochMilli();
         for (int i = 0; i < 5; i++) {
-            MeterReadingV2 reading = new MeterReadingV2(
+            MeterReading reading = new MeterReading(
                     base + i * 15 * 60 * 1000,
                     1.0, 1.0, 1.0);
             meterCacheService.ingestReading("MTR-001", reading);
@@ -266,7 +267,7 @@ class MeterCacheServiceTest {
         assertEquals(0, meterCacheService.getBucketCount());
 
         meterCacheService.ingestReading("MTR-001", 
-                new MeterReadingV2(System.currentTimeMillis(), 1.0, 1.0, 1.0));
+                new MeterReading(System.currentTimeMillis(), 1.0, 1.0, 1.0));
 
         assertEquals(1, meterCacheService.getBucketCount());
     }
@@ -275,7 +276,7 @@ class MeterCacheServiceTest {
     void testEvictBucket() {
         long now = System.currentTimeMillis();
         meterCacheService.ingestReading("MTR-001", 
-                new MeterReadingV2(now, 1.0, 1.0, 1.0));
+                new MeterReading(now, 1.0, 1.0, 1.0));
 
         assertEquals(1, meterCacheService.getBucketCount());
 
@@ -287,14 +288,14 @@ class MeterCacheServiceTest {
 
     @Test
     void testEvictOldBuckets() throws InterruptedException {
-        IMap<String, MeterBucketV2> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
+        IMap<String, MeterBucket> map = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
         
-        MeterBucketV2 oldBucket = new MeterBucketV2("MTR-001", LocalDate.now().minusDays(30).toEpochDay());
+        MeterBucket oldBucket = new MeterBucket("MTR-001", LocalDate.now().minusDays(30).toEpochDay());
         oldBucket.setCreatedTime(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
         oldBucket.setLastAccessTime(System.currentTimeMillis() - 48 * 60 * 60 * 1000);
         map.put("MTR-001:" + LocalDate.now().minusDays(30), oldBucket);
 
-        MeterBucketV2 recentBucket = new MeterBucketV2("MTR-002", LocalDate.now().toEpochDay());
+        MeterBucket recentBucket = new MeterBucket("MTR-002", LocalDate.now().toEpochDay());
         map.put("MTR-002:" + LocalDate.now(), recentBucket);
 
         assertEquals(2, meterCacheService.getBucketCount());
@@ -308,7 +309,7 @@ class MeterCacheServiceTest {
     void testGetCacheStats() {
         long now = System.currentTimeMillis();
         meterCacheService.ingestReading("MTR-001", 
-                new MeterReadingV2(now, 220.5, 5.2, 1146.6));
+                new MeterReading(now, 220.5, 5.2, 1146.6));
 
         MeterCacheService.CacheStats stats = meterCacheService.getCacheStats();
 

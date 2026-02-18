@@ -1,6 +1,6 @@
 package org.e4s.server.benchmark;
 
-import org.e4s.server.model.MeterReadingV2;
+import org.e4s.model.MeterReading;
 import org.e4s.server.service.MeterCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +31,7 @@ public class BenchmarkRunner {
     public BenchmarkResult runIngestBenchmark(BenchmarkConfig config) {
         log.info("Starting ingest benchmark with config: {}", config);
         
-        List<MeterReadingV2> readings = generateReadings(config.readingsPerMeter, config.startInstant);
+        List<MeterReading> readings = generateReadings(config.readingsPerMeter, config.startInstant);
         ExecutorService executor = Executors.newFixedThreadPool(config.threadCount);
         
         AtomicLong totalOps = new AtomicLong(0);
@@ -117,7 +117,7 @@ public class BenchmarkRunner {
                     
                     for (int m = meterStart; m < meterEnd; m++) {
                         String meterId = config.meterIdPrefix + m;
-                        List<MeterReadingV2> readings = generateReadings(config.batchSize, config.startInstant);
+                        List<MeterReading> readings = generateReadings(config.batchSize, config.startInstant);
                         
                         long opStart = System.nanoTime();
                         
@@ -300,11 +300,11 @@ public class BenchmarkRunner {
         return result;
     }
 
-    private List<MeterReadingV2> generateReadings(int count, Instant start) {
-        List<MeterReadingV2> readings = new ArrayList<>(count);
+    private List<MeterReading> generateReadings(int count, Instant start) {
+        List<MeterReading> readings = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             long reportedTs = start.plus(i * 15, ChronoUnit.MINUTES).toEpochMilli();
-            readings.add(new MeterReadingV2(
+            readings.add(new MeterReading(
                     reportedTs,
                     220 + random.nextDouble() * 10,
                     5 + random.nextDouble() * 2,

@@ -1,16 +1,16 @@
-package org.e4s.server.model;
+package org.e4s.model;
 
-public class MeterReadingV2 {
+public class MeterReading {
 
     private long reportedTs;
     private double voltage;
     private double current;
     private double power;
 
-    public MeterReadingV2() {
+    public MeterReading() {
     }
 
-    public MeterReadingV2(long reportedTs, double voltage, double current, double power) {
+    public MeterReading(long reportedTs, double voltage, double current, double power) {
         this.reportedTs = reportedTs;
         this.voltage = voltage;
         this.current = current;
@@ -51,7 +51,7 @@ public class MeterReadingV2 {
 
     @Override
     public String toString() {
-        return "MeterReadingV2{" +
+        return "MeterReading{" +
                 "reportedTs=" + reportedTs +
                 ", voltage=" + voltage +
                 ", current=" + current +

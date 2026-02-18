@@ -1,31 +1,31 @@
-package org.e4s.server.model;
+package org.e4s.model;
 
-public class MeterBucketV2 {
+public class MeterBucket {
 
     private String meterId;
     private long bucketDateEpochDay;
-    private MeterReadingV2[] readings;
+    private MeterReading[] readings;
     private int readingCount;
     private long lastAccessTime;
     private long createdTime;
 
-    public MeterBucketV2() {
-        this.readings = new MeterReadingV2[0];
+    public MeterBucket() {
+        this.readings = new MeterReading[0];
         this.readingCount = 0;
         this.createdTime = System.currentTimeMillis();
         this.lastAccessTime = this.createdTime;
     }
 
-    public MeterBucketV2(String meterId, long bucketDateEpochDay) {
+    public MeterBucket(String meterId, long bucketDateEpochDay) {
         this();
         this.meterId = meterId;
         this.bucketDateEpochDay = bucketDateEpochDay;
     }
 
-    public MeterBucketV2(String meterId, long bucketDateEpochDay, int initialCapacity) {
+    public MeterBucket(String meterId, long bucketDateEpochDay, int initialCapacity) {
         this.meterId = meterId;
         this.bucketDateEpochDay = bucketDateEpochDay;
-        this.readings = new MeterReadingV2[initialCapacity];
+        this.readings = new MeterReading[initialCapacity];
         this.readingCount = 0;
         this.createdTime = System.currentTimeMillis();
         this.lastAccessTime = this.createdTime;
@@ -47,11 +47,11 @@ public class MeterBucketV2 {
         this.bucketDateEpochDay = bucketDateEpochDay;
     }
 
-    public MeterReadingV2[] getReadings() {
+    public MeterReading[] getReadings() {
         return readings;
     }
 
-    public void setReadings(MeterReadingV2[] readings) {
+    public void setReadings(MeterReading[] readings) {
         this.readings = readings;
         this.readingCount = readings != null ? readings.length : 0;
     }
@@ -84,13 +84,13 @@ public class MeterBucketV2 {
         this.lastAccessTime = System.currentTimeMillis();
     }
 
-    public void addReading(MeterReadingV2 reading) {
+    public void addReading(MeterReading reading) {
         ensureCapacity(readingCount + 1);
         readings[readingCount++] = reading;
         touch();
     }
 
-    public void addReadings(MeterReadingV2[] newReadings) {
+    public void addReadings(MeterReading[] newReadings) {
         if (newReadings == null || newReadings.length == 0) {
             return;
         }
@@ -102,12 +102,12 @@ public class MeterBucketV2 {
 
     private void ensureCapacity(int minCapacity) {
         if (readings == null) {
-            readings = new MeterReadingV2[Math.max(minCapacity, 16)];
+            readings = new MeterReading[Math.max(minCapacity, 16)];
             return;
         }
         if (readings.length < minCapacity) {
             int newCapacity = Math.max(minCapacity, readings.length + (readings.length >> 1));
-            MeterReadingV2[] newReadings = new MeterReadingV2[newCapacity];
+            MeterReading[] newReadings = new MeterReading[newCapacity];
             System.arraycopy(readings, 0, newReadings, 0, readingCount);
             readings = newReadings;
         }
@@ -116,9 +116,9 @@ public class MeterBucketV2 {
     public void trimToSize() {
         if (readings != null && readings.length > readingCount) {
             if (readingCount == 0) {
-                readings = new MeterReadingV2[0];
+                readings = new MeterReading[0];
             } else {
-                MeterReadingV2[] trimmed = new MeterReadingV2[readingCount];
+                MeterReading[] trimmed = new MeterReading[readingCount];
                 System.arraycopy(readings, 0, trimmed, 0, readingCount);
                 readings = trimmed;
             }
@@ -127,12 +127,10 @@ public class MeterBucketV2 {
 
     @Override
     public String toString() {
-        return "MeterBucketV2{" +
+        return "MeterBucket{" +
                 "meterId='" + meterId + '\'' +
                 ", bucketDateEpochDay=" + bucketDateEpochDay +
                 ", readingCount=" + readingCount +
-                ", lastAccessTime=" + lastAccessTime +
-                ", createdTime=" + createdTime +
                 '}';
     }
 }

@@ -1,7 +1,7 @@
 package org.e4s.server.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.e4s.server.model.MeterReadingV2;
+import org.e4s.model.MeterReading;
 import org.e4s.server.service.MeterCacheService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,7 +12,6 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
@@ -35,7 +34,7 @@ class IngestControllerTest {
     @Test
     void testIngestSingle() throws Exception {
         long now = System.currentTimeMillis();
-        MeterReadingV2 reading = new MeterReadingV2(now, 220.5, 5.2, 1146.6);
+        MeterReading reading = new MeterReading(now, 220.5, 5.2, 1146.6);
 
         mockMvc.perform(post("/api/v1/ingest")
                         .param("meterId", "MTR-001")
@@ -45,15 +44,15 @@ class IngestControllerTest {
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.count").value(1));
 
-        verify(meterCacheService).ingestReading(eq("MTR-001"), any(MeterReadingV2.class));
+        verify(meterCacheService).ingestReading(eq("MTR-001"), any(MeterReading.class));
     }
 
     @Test
     void testIngestBatch() throws Exception {
         long now = System.currentTimeMillis();
-        List<MeterReadingV2> readings = Arrays.asList(
-                new MeterReadingV2(now, 1.0, 1.0, 1.0),
-                new MeterReadingV2(now + 900000, 1.0, 1.0, 1.0)
+        List<MeterReading> readings = Arrays.asList(
+                new MeterReading(now, 1.0, 1.0, 1.0),
+                new MeterReading(now + 900000, 1.0, 1.0, 1.0)
         );
 
         mockMvc.perform(post("/api/v1/ingest/batch")
@@ -72,14 +71,14 @@ class IngestControllerTest {
         MeterCacheService.IngestRequest request1 = new MeterCacheService.IngestRequest();
         request1.setMeterId("MTR-001");
         request1.setReadings(Arrays.asList(
-                new MeterReadingV2(System.currentTimeMillis(), 1.0, 1.0, 1.0)
+                new MeterReading(System.currentTimeMillis(), 1.0, 1.0, 1.0)
         ));
 
         MeterCacheService.IngestRequest request2 = new MeterCacheService.IngestRequest();
         request2.setMeterId("MTR-002");
         request2.setReadings(Arrays.asList(
-                new MeterReadingV2(System.currentTimeMillis(), 1.0, 1.0, 1.0),
-                new MeterReadingV2(System.currentTimeMillis() + 900000, 1.0, 1.0, 1.0)
+                new MeterReading(System.currentTimeMillis(), 1.0, 1.0, 1.0),
+                new MeterReading(System.currentTimeMillis() + 900000, 1.0, 1.0, 1.0)
         ));
 
         List<MeterCacheService.IngestRequest> requests = Arrays.asList(request1, request2);
@@ -96,7 +95,7 @@ class IngestControllerTest {
 
     @Test
     void testIngestSingleWithMissingMeterId() throws Exception {
-        MeterReadingV2 reading = new MeterReadingV2(System.currentTimeMillis(), 1.0, 1.0, 1.0);
+        MeterReading reading = new MeterReading(System.currentTimeMillis(), 1.0, 1.0, 1.0);
 
         mockMvc.perform(post("/api/v1/ingest")
                         .contentType(MediaType.APPLICATION_JSON)

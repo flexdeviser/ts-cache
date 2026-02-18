@@ -1,11 +1,10 @@
 package org.e4s.server.controller;
 
-import org.e4s.server.model.MeterReadingV2;
+import org.e4s.model.MeterReading;
 import org.e4s.server.service.MeterCacheService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
 import java.util.List;
 
 @RestController
@@ -21,7 +20,7 @@ public class IngestController {
     @PostMapping("/ingest")
     public ResponseEntity<IngestResponse> ingestSingle(
             @RequestParam String meterId,
-            @RequestBody MeterReadingV2 reading) {
+            @RequestBody MeterReading reading) {
         meterCacheService.ingestReading(meterId, reading);
         return ResponseEntity.ok(new IngestResponse("success", 1));
     }
@@ -29,7 +28,7 @@ public class IngestController {
     @PostMapping("/ingest/batch")
     public ResponseEntity<IngestResponse> ingestBatch(
             @RequestParam String meterId,
-            @RequestBody List<MeterReadingV2> readings) {
+            @RequestBody List<MeterReading> readings) {
         meterCacheService.ingestReadings(meterId, readings);
         return ResponseEntity.ok(new IngestResponse("success", readings.size()));
     }
