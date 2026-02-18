@@ -48,6 +48,7 @@ class E4sHzClientIntegrationTest {
         );
 
         server = Hazelcast.newHazelcastInstance(config);
+
     }
 
     @AfterAll
@@ -60,6 +61,10 @@ class E4sHzClientIntegrationTest {
     @BeforeEach
     void setUp() {
         client = new E4sHzClient("localhost:5701");
+
+        // preload one reading into "TEST-HZ-001"
+        client.ingestReading("TEST-HZ-001", createReading(Instant.ofEpochMilli(1771401600000L)));
+
     }
 
     @AfterEach
