@@ -15,6 +15,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@EnabledIfEnvironmentVariable(named = "E4S_SERVER_RUNNING", matches = "true")
 class E4sHttpClientIntegrationTest {
 
     private static final String SERVER_URL = "http://localhost:8080";
