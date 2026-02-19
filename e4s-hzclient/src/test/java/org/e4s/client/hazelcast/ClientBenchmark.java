@@ -5,40 +5,23 @@ import com.hazelcast.config.SerializerConfig;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import org.e4s.client.E4sClient;
-import org.e4s.model.MeterBucket;
-import org.e4s.model.MeterReading;
-import org.e4s.model.serialization.MeterBucketHazelcastSerializer;
-import org.e4s.model.serialization.MeterReadingHazelcastSerializer;
+import org.e4s.model.GenericBucket;
+import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
+import org.e4s.model.serialization.GenericBucketHazelcastSerializer;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Benchmark comparing HTTP client vs native Hazelcast client performance.
- * 
- * <p>Run this benchmark to compare:
- * <ul>
- *   <li>HTTP client (JSON serialization, REST API)</li>
- *   <li>Native client (Kryo + Deflater, direct IMap access)</li>
- * </ul>
- * 
- * <p>Usage:
- * <pre>{@code
- * // Run with default config
- * ClientBenchmark.main(new String[]{});
- * 
- * // Or programmatically
- * ClientBenchmark benchmark = new ClientBenchmark(server);
- * benchmark.runComparison();
- * }</pre>
- */
 public class ClientBenchmark {
 
     private static final Random random = new Random();
@@ -135,7 +118,7 @@ public class ClientBenchmark {
                     
                     for (int m = meterStart; m < meterEnd; m++) {
                         String meterId = meterIdPrefix + String.format("%05d", m);
-                        List<MeterReading> readings = generateReadings(readingsPerMeter);
+                        List<Timestamped> readings = generateReadings(readingsPerMeter);
                         
                         long opStart = System.nanoTime();
                         client.ingestReadings(meterId, readings);
@@ -203,7 +186,7 @@ public class ClientBenchmark {
                         Instant end = start.plus(1, ChronoUnit.DAYS);
                         
                         long opStart = System.nanoTime();
-                        List<MeterReading> readings = client.queryRange(meterId, start, end);
+                        List<? extends Timestamped> readings = client.queryRange(meterId, start, end);
                         long opLatency = System.nanoTime() - opStart;
                         
                         totalLatency.addAndGet(opLatency);
@@ -298,16 +281,17 @@ public class ClientBenchmark {
         return result;
     }
 
-    private List<MeterReading> generateReadings(int count) {
-        List<MeterReading> readings = new ArrayList<>(count);
+    private List<Timestamped> generateReadings(int count) {
+        List<Timestamped> readings = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             long reportedTs = startInstant.plus(i * 15, ChronoUnit.MINUTES).toEpochMilli();
-            readings.add(new MeterReading(
-                    reportedTs,
-                    220 + random.nextDouble() * 10,
-                    5 + random.nextDouble() * 2,
-                    1000 + random.nextDouble() * 500
-            ));
+            Map<String, Object> fieldValues = new HashMap<>();
+            fieldValues.put("reportedTs", reportedTs);
+            fieldValues.put("voltage", 220 + random.nextDouble() * 10);
+            fieldValues.put("current", 5 + random.nextDouble() * 2);
+            fieldValues.put("power", 1000 + random.nextDouble() * 500);
+            readings.add(DynamicModelRegistry.getInstance().createReading(
+                    "MeterReading", fieldValues));
         }
         return readings;
     }
@@ -428,19 +412,15 @@ public class ClientBenchmark {
     }
 
     public static void main(String[] args) {
+        DynamicModelRegistry.getInstance().initialize();
+        
         Config config = new Config();
         config.setInstanceName("benchmark-server");
 
         config.getSerializationConfig().addSerializerConfig(
                 new SerializerConfig()
-                        .setTypeClass(MeterReading.class)
-                        .setImplementation(new MeterReadingHazelcastSerializer())
-        );
-
-        config.getSerializationConfig().addSerializerConfig(
-                new SerializerConfig()
-                        .setTypeClass(MeterBucket.class)
-                        .setImplementation(new MeterBucketHazelcastSerializer())
+                        .setTypeClass(GenericBucket.class)
+                        .setImplementation(new GenericBucketHazelcastSerializer())
         );
 
         HazelcastInstance server = Hazelcast.newHazelcastInstance(config);

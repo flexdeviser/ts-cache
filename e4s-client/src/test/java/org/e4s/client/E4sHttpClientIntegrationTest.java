@@ -1,7 +1,8 @@
 package org.e4s.client;
 
 import org.e4s.client.http.E4sHttpClient;
-import org.e4s.model.MeterReading;
+import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,7 +11,9 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -25,6 +28,7 @@ class E4sHttpClientIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        DynamicModelRegistry.getInstance().initialize();
         client = new E4sHttpClient(SERVER_URL);
     }
 
@@ -48,7 +52,7 @@ class E4sHttpClientIntegrationTest {
 
     @Test
     void testIngestSingleReading() {
-        MeterReading reading = createReading(Instant.now());
+        Timestamped reading = createReading(Instant.now());
         
         assertDoesNotThrow(() -> client.ingestReading("TEST-MTR-001", reading));
         System.out.println("Single reading ingested successfully");
@@ -56,7 +60,7 @@ class E4sHttpClientIntegrationTest {
 
     @Test
     void testIngestBatchReadings() {
-        List<MeterReading> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
+        List<Timestamped> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
         
         assertDoesNotThrow(() -> client.ingestReadings("TEST-MTR-002", readings));
         System.out.println("Batch of " + readings.size() + " readings ingested successfully");
@@ -68,7 +72,7 @@ class E4sHttpClientIntegrationTest {
         
         for (int m = 1; m <= 10; m++) {
             String meterId = "TEST-MTR-" + String.format("%03d", m);
-            List<MeterReading> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
+            List<Timestamped> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
             requests.add(new E4sClient.IngestRequest(meterId, readings));
         }
         
@@ -81,13 +85,13 @@ class E4sHttpClientIntegrationTest {
         String meterId = "TEST-MTR-QUERY-001";
         Instant baseTime = Instant.now().minus(7, ChronoUnit.DAYS);
         
-        List<MeterReading> readings = createReadings(96 * 7, baseTime);
+        List<Timestamped> readings = createReadings(96 * 7, baseTime);
         client.ingestReadings(meterId, readings);
         
         Instant start = baseTime.plus(1, ChronoUnit.DAYS);
         Instant end = baseTime.plus(3, ChronoUnit.DAYS);
         
-        List<MeterReading> result = client.queryRange(meterId, start, end);
+        List<? extends Timestamped> result = client.queryRange(meterId, start, end);
         
         System.out.println("Query returned " + result.size() + " readings");
         assertFalse(result.isEmpty(), "Should return readings");
@@ -98,7 +102,7 @@ class E4sHttpClientIntegrationTest {
         String meterId = "TEST-MTR-AGG-001";
         Instant baseTime = Instant.now().minus(3, ChronoUnit.DAYS);
         
-        List<MeterReading> readings = createReadings(96 * 3, baseTime);
+        List<Timestamped> readings = createReadings(96 * 3, baseTime);
         client.ingestReadings(meterId, readings);
         
         Instant start = baseTime;
@@ -119,7 +123,7 @@ class E4sHttpClientIntegrationTest {
         String meterId = "TEST-MTR-AGG-002";
         Instant baseTime = Instant.now().minus(3, ChronoUnit.DAYS);
         
-        List<MeterReading> readings = createReadings(96 * 3, baseTime);
+        List<Timestamped> readings = createReadings(96 * 3, baseTime);
         client.ingestReadings(meterId, readings);
         
         Instant start = baseTime;
@@ -139,7 +143,7 @@ class E4sHttpClientIntegrationTest {
         String meterId = "TEST-MTR-AGG-003";
         Instant baseTime = Instant.now().minus(1, ChronoUnit.DAYS);
         
-        List<MeterReading> readings = createReadings(96, baseTime);
+        List<Timestamped> readings = createReadings(96, baseTime);
         client.ingestReadings(meterId, readings);
         
         Instant start = baseTime;
@@ -186,12 +190,12 @@ class E4sHttpClientIntegrationTest {
         System.out.println("   Server healthy: " + healthy);
         
         System.out.println("\n2. Ingest Data");
-        List<MeterReading> readings = createReadings(96, baseTime);
+        List<Timestamped> readings = createReadings(96, baseTime);
         client.ingestReadings(meterId, readings);
         System.out.println("   Ingested " + readings.size() + " readings");
         
         System.out.println("\n3. Query Range");
-        List<MeterReading> queried = client.queryRange(meterId, baseTime, baseTime.plus(1, ChronoUnit.DAYS));
+        List<? extends Timestamped> queried = client.queryRange(meterId, baseTime, baseTime.plus(1, ChronoUnit.DAYS));
         System.out.println("   Queried " + queried.size() + " readings");
         
         System.out.println("\n4. Aggregation");
@@ -209,17 +213,17 @@ class E4sHttpClientIntegrationTest {
         System.out.println("\n=== Workflow Complete ===");
     }
 
-    private MeterReading createReading(Instant timestamp) {
-        return new MeterReading(
-                timestamp.toEpochMilli(),
-                220.0 + random.nextDouble() * 10,
-                5.0 + random.nextDouble() * 2,
-                1000.0 + random.nextDouble() * 500
-        );
+    private Timestamped createReading(Instant timestamp) {
+        Map<String, Object> fieldValues = new HashMap<>();
+        fieldValues.put("reportedTs", timestamp.toEpochMilli());
+        fieldValues.put("voltage", 220.0 + random.nextDouble() * 10);
+        fieldValues.put("current", 5.0 + random.nextDouble() * 2);
+        fieldValues.put("power", 1000.0 + random.nextDouble() * 500);
+        return DynamicModelRegistry.getInstance().createReading("MeterReading", fieldValues);
     }
 
-    private List<MeterReading> createReadings(int count, Instant startTime) {
-        List<MeterReading> readings = new ArrayList<>(count);
+    private List<Timestamped> createReadings(int count, Instant startTime) {
+        List<Timestamped> readings = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             Instant timestamp = startTime.plus(i * 15, ChronoUnit.MINUTES);
             readings.add(createReading(timestamp));

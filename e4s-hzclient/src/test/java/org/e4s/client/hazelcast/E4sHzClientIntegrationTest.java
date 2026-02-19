@@ -5,10 +5,10 @@ import com.hazelcast.config.SerializerConfig;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import org.e4s.client.E4sClient;
-import org.e4s.model.MeterBucket;
-import org.e4s.model.MeterReading;
-import org.e4s.model.serialization.MeterBucketHazelcastSerializer;
-import org.e4s.model.serialization.MeterReadingHazelcastSerializer;
+import org.e4s.model.GenericBucket;
+import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
+import org.e4s.model.serialization.GenericBucketHazelcastSerializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -18,7 +18,9 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,19 +34,15 @@ class E4sHzClientIntegrationTest {
 
     @BeforeAll
     static void startServer() {
+        DynamicModelRegistry.getInstance().initialize();
+        
         Config config = new Config();
         config.setInstanceName("e4s-test-server");
 
         config.getSerializationConfig().addSerializerConfig(
                 new SerializerConfig()
-                        .setTypeClass(MeterReading.class)
-                        .setImplementation(new MeterReadingHazelcastSerializer())
-        );
-
-        config.getSerializationConfig().addSerializerConfig(
-                new SerializerConfig()
-                        .setTypeClass(MeterBucket.class)
-                        .setImplementation(new MeterBucketHazelcastSerializer())
+                        .setTypeClass(GenericBucket.class)
+                        .setImplementation(new GenericBucketHazelcastSerializer())
         );
 
         server = Hazelcast.newHazelcastInstance(config);
@@ -62,7 +60,6 @@ class E4sHzClientIntegrationTest {
     void setUp() {
         client = new E4sHzClient("localhost:5701");
 
-        // preload one reading into "TEST-HZ-001"
         client.ingestReading("TEST-HZ-001", createReading(Instant.ofEpochMilli(1771401600000L)));
 
     }
@@ -83,7 +80,7 @@ class E4sHzClientIntegrationTest {
 
     @Test
     void testIngestSingleReading() {
-        MeterReading reading = createReading(Instant.now());
+        Timestamped reading = createReading(Instant.now());
 
         assertDoesNotThrow(() -> client.ingestReading("TEST-HZ-001", reading));
         System.out.println("Single reading ingested successfully via native client");
@@ -91,7 +88,7 @@ class E4sHzClientIntegrationTest {
 
     @Test
     void testIngestBatchReadings() {
-        List<MeterReading> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
+        List<Timestamped> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
 
         assertDoesNotThrow(() -> client.ingestReadings("TEST-HZ-002", readings));
         System.out.println("Batch of " + readings.size() + " readings ingested successfully");
@@ -103,7 +100,7 @@ class E4sHzClientIntegrationTest {
 
         for (int m = 1; m <= 10; m++) {
             String meterId = "TEST-HZ-" + String.format("%03d", m);
-            List<MeterReading> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
+            List<Timestamped> readings = createReadings(96, Instant.now().minus(1, ChronoUnit.DAYS));
             requests.add(new E4sClient.IngestRequest(meterId, readings));
         }
 
@@ -116,13 +113,13 @@ class E4sHzClientIntegrationTest {
         String meterId = "TEST-HZ-QUERY-001";
         Instant baseTime = Instant.now().minus(7, ChronoUnit.DAYS);
 
-        List<MeterReading> readings = createReadings(96 * 7, baseTime);
+        List<Timestamped> readings = createReadings(96 * 7, baseTime);
         client.ingestReadings(meterId, readings);
 
         Instant start = baseTime.plus(1, ChronoUnit.DAYS);
         Instant end = baseTime.plus(3, ChronoUnit.DAYS);
 
-        List<MeterReading> result = client.queryRange(meterId, start, end);
+        List<Timestamped> result = client.queryRange(meterId, start, end);
 
         System.out.println("Query returned " + result.size() + " readings");
         assertFalse(result.isEmpty(), "Should return readings");
@@ -133,7 +130,7 @@ class E4sHzClientIntegrationTest {
         String meterId = "TEST-HZ-AGG-001";
         Instant baseTime = Instant.now().minus(3, ChronoUnit.DAYS);
 
-        List<MeterReading> readings = createReadings(96 * 3, baseTime);
+        List<Timestamped> readings = createReadings(96 * 3, baseTime);
         client.ingestReadings(meterId, readings);
 
         Instant start = baseTime;
@@ -154,7 +151,7 @@ class E4sHzClientIntegrationTest {
         String meterId = "TEST-HZ-AGG-002";
         Instant baseTime = Instant.now().minus(3, ChronoUnit.DAYS);
 
-        List<MeterReading> readings = createReadings(96 * 3, baseTime);
+        List<Timestamped> readings = createReadings(96 * 3, baseTime);
         client.ingestReadings(meterId, readings);
 
         Instant start = baseTime;
@@ -174,7 +171,7 @@ class E4sHzClientIntegrationTest {
         String meterId = "TEST-HZ-AGG-003";
         Instant baseTime = Instant.now().minus(1, ChronoUnit.DAYS);
 
-        List<MeterReading> readings = createReadings(96, baseTime);
+        List<Timestamped> readings = createReadings(96, baseTime);
         client.ingestReadings(meterId, readings);
 
         Instant start = baseTime;
@@ -221,12 +218,12 @@ class E4sHzClientIntegrationTest {
         System.out.println("   Server healthy: " + healthy);
 
         System.out.println("\n2. Ingest Data");
-        List<MeterReading> readings = createReadings(96, baseTime);
+        List<Timestamped> readings = createReadings(96, baseTime);
         client.ingestReadings(meterId, readings);
         System.out.println("   Ingested " + readings.size() + " readings");
 
         System.out.println("\n3. Query Range");
-        List<MeterReading> queried = client.queryRange(meterId, baseTime, baseTime.plus(1, ChronoUnit.DAYS));
+        List<Timestamped> queried = client.queryRange(meterId, baseTime, baseTime.plus(1, ChronoUnit.DAYS));
         System.out.println("   Queried " + queried.size() + " readings");
 
         System.out.println("\n4. Aggregation");
@@ -244,17 +241,18 @@ class E4sHzClientIntegrationTest {
         System.out.println("\n=== Workflow Complete ===");
     }
 
-    private MeterReading createReading(Instant timestamp) {
-        return new MeterReading(
-                timestamp.toEpochMilli(),
-                220.0 + random.nextDouble() * 10,
-                5.0 + random.nextDouble() * 2,
-                1000.0 + random.nextDouble() * 500
-        );
+    private Timestamped createReading(Instant timestamp) {
+        Map<String, Object> fieldValues = new HashMap<>();
+        fieldValues.put("reportedTs", timestamp.toEpochMilli());
+        fieldValues.put("voltage", 220.0 + random.nextDouble() * 10);
+        fieldValues.put("current", 5.0 + random.nextDouble() * 2);
+        fieldValues.put("power", 1000.0 + random.nextDouble() * 500);
+        return DynamicModelRegistry.getInstance().createReading(
+                "MeterReading", fieldValues);
     }
 
-    private List<MeterReading> createReadings(int count, Instant startTime) {
-        List<MeterReading> readings = new ArrayList<>(count);
+    private List<Timestamped> createReadings(int count, Instant startTime) {
+        List<Timestamped> readings = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             Instant timestamp = startTime.plus(i * 15, ChronoUnit.MINUTES);
             readings.add(createReading(timestamp));

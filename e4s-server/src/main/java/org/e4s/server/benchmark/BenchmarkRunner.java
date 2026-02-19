@@ -1,6 +1,7 @@
 package org.e4s.server.benchmark;
 
-import org.e4s.model.MeterReading;
+import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
 import org.e4s.server.service.MeterCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,7 +10,9 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +24,7 @@ public class BenchmarkRunner {
 
     private static final Logger log = LoggerFactory.getLogger(BenchmarkRunner.class);
     private static final Random random = new Random();
+    private static final String MODEL_NAME = "MeterReading";
 
     private final MeterCacheService meterCacheService;
 
@@ -31,7 +35,7 @@ public class BenchmarkRunner {
     public BenchmarkResult runIngestBenchmark(BenchmarkConfig config) {
         log.info("Starting ingest benchmark with config: {}", config);
         
-        List<MeterReading> readings = generateReadings(config.readingsPerMeter, config.startInstant);
+        List<Timestamped> readings = generateReadings(config.readingsPerMeter, config.startInstant);
         ExecutorService executor = Executors.newFixedThreadPool(config.threadCount);
         
         AtomicLong totalOps = new AtomicLong(0);
@@ -117,7 +121,7 @@ public class BenchmarkRunner {
                     
                     for (int m = meterStart; m < meterEnd; m++) {
                         String meterId = config.meterIdPrefix + m;
-                        List<MeterReading> readings = generateReadings(config.batchSize, config.startInstant);
+                        List<Timestamped> readings = generateReadings(config.batchSize, config.startInstant);
                         
                         long opStart = System.nanoTime();
                         
@@ -300,16 +304,18 @@ public class BenchmarkRunner {
         return result;
     }
 
-    private List<MeterReading> generateReadings(int count, Instant start) {
-        List<MeterReading> readings = new ArrayList<>(count);
+    private List<Timestamped> generateReadings(int count, Instant start) {
+        DynamicModelRegistry registry = DynamicModelRegistry.getInstance();
+        
+        List<Timestamped> readings = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             long reportedTs = start.plus(i * 15, ChronoUnit.MINUTES).toEpochMilli();
-            readings.add(new MeterReading(
-                    reportedTs,
-                    220 + random.nextDouble() * 10,
-                    5 + random.nextDouble() * 2,
-                    1000 + random.nextDouble() * 500
-            ));
+            Map<String, Object> fieldValues = new HashMap<>();
+            fieldValues.put("reportedTs", reportedTs);
+            fieldValues.put("voltage", 220 + random.nextDouble() * 10);
+            fieldValues.put("current", 5 + random.nextDouble() * 2);
+            fieldValues.put("power", 1000 + random.nextDouble() * 500);
+            readings.add(registry.createReading(MODEL_NAME, fieldValues));
         }
         return readings;
     }
@@ -323,61 +329,20 @@ public class BenchmarkRunner {
         private int queriesPerThread = 100;
         private Instant startInstant = Instant.now().minus(14, ChronoUnit.DAYS);
 
-        public String getMeterIdPrefix() {
-            return meterIdPrefix;
-        }
-
-        public void setMeterIdPrefix(String meterIdPrefix) {
-            this.meterIdPrefix = meterIdPrefix;
-        }
-
-        public int getThreadCount() {
-            return threadCount;
-        }
-
-        public void setThreadCount(int threadCount) {
-            this.threadCount = threadCount;
-        }
-
-        public int getMetersPerThread() {
-            return metersPerThread;
-        }
-
-        public void setMetersPerThread(int metersPerThread) {
-            this.metersPerThread = metersPerThread;
-        }
-
-        public int getReadingsPerMeter() {
-            return readingsPerMeter;
-        }
-
-        public void setReadingsPerMeter(int readingsPerMeter) {
-            this.readingsPerMeter = readingsPerMeter;
-        }
-
-        public int getBatchSize() {
-            return batchSize;
-        }
-
-        public void setBatchSize(int batchSize) {
-            this.batchSize = batchSize;
-        }
-
-        public int getQueriesPerThread() {
-            return queriesPerThread;
-        }
-
-        public void setQueriesPerThread(int queriesPerThread) {
-            this.queriesPerThread = queriesPerThread;
-        }
-
-        public Instant getStartInstant() {
-            return startInstant;
-        }
-
-        public void setStartInstant(Instant startInstant) {
-            this.startInstant = startInstant;
-        }
+        public String getMeterIdPrefix() { return meterIdPrefix; }
+        public void setMeterIdPrefix(String meterIdPrefix) { this.meterIdPrefix = meterIdPrefix; }
+        public int getThreadCount() { return threadCount; }
+        public void setThreadCount(int threadCount) { this.threadCount = threadCount; }
+        public int getMetersPerThread() { return metersPerThread; }
+        public void setMetersPerThread(int metersPerThread) { this.metersPerThread = metersPerThread; }
+        public int getReadingsPerMeter() { return readingsPerMeter; }
+        public void setReadingsPerMeter(int readingsPerMeter) { this.readingsPerMeter = readingsPerMeter; }
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
+        public int getQueriesPerThread() { return queriesPerThread; }
+        public void setQueriesPerThread(int queriesPerThread) { this.queriesPerThread = queriesPerThread; }
+        public Instant getStartInstant() { return startInstant; }
+        public void setStartInstant(Instant startInstant) { this.startInstant = startInstant; }
 
         @Override
         public String toString() {
@@ -404,89 +369,27 @@ public class BenchmarkRunner {
         private long bucketCount;
         private long memoryBytes;
 
-        public String getOperationType() {
-            return operationType;
-        }
-
-        public void setOperationType(String operationType) {
-            this.operationType = operationType;
-        }
-
-        public long getTotalOps() {
-            return totalOps;
-        }
-
-        public void setTotalOps(long totalOps) {
-            this.totalOps = totalOps;
-        }
-
-        public long getTotalReadings() {
-            return totalReadings;
-        }
-
-        public void setTotalReadings(long totalReadings) {
-            this.totalReadings = totalReadings;
-        }
-
-        public long getDurationMs() {
-            return durationMs;
-        }
-
-        public void setDurationMs(long durationMs) {
-            this.durationMs = durationMs;
-        }
-
-        public double getOpsPerSecond() {
-            return opsPerSecond;
-        }
-
-        public void setOpsPerSecond(double opsPerSecond) {
-            this.opsPerSecond = opsPerSecond;
-        }
-
-        public double getAvgLatencyUs() {
-            return avgLatencyUs;
-        }
-
-        public void setAvgLatencyUs(double avgLatencyUs) {
-            this.avgLatencyUs = avgLatencyUs;
-        }
-
-        public double getMinLatencyUs() {
-            return minLatencyUs;
-        }
-
-        public void setMinLatencyUs(double minLatencyUs) {
-            this.minLatencyUs = minLatencyUs;
-        }
-
-        public double getMaxLatencyUs() {
-            return maxLatencyUs;
-        }
-
-        public void setMaxLatencyUs(double maxLatencyUs) {
-            this.maxLatencyUs = maxLatencyUs;
-        }
-
-        public long getBucketCount() {
-            return bucketCount;
-        }
-
-        public void setBucketCount(long bucketCount) {
-            this.bucketCount = bucketCount;
-        }
-
-        public long getMemoryBytes() {
-            return memoryBytes;
-        }
-
-        public void setMemoryBytes(long memoryBytes) {
-            this.memoryBytes = memoryBytes;
-        }
-
-        public double getMemoryMB() {
-            return memoryBytes / (1024.0 * 1024.0);
-        }
+        public String getOperationType() { return operationType; }
+        public void setOperationType(String operationType) { this.operationType = operationType; }
+        public long getTotalOps() { return totalOps; }
+        public void setTotalOps(long totalOps) { this.totalOps = totalOps; }
+        public long getTotalReadings() { return totalReadings; }
+        public void setTotalReadings(long totalReadings) { this.totalReadings = totalReadings; }
+        public long getDurationMs() { return durationMs; }
+        public void setDurationMs(long durationMs) { this.durationMs = durationMs; }
+        public double getOpsPerSecond() { return opsPerSecond; }
+        public void setOpsPerSecond(double opsPerSecond) { this.opsPerSecond = opsPerSecond; }
+        public double getAvgLatencyUs() { return avgLatencyUs; }
+        public void setAvgLatencyUs(double avgLatencyUs) { this.avgLatencyUs = avgLatencyUs; }
+        public double getMinLatencyUs() { return minLatencyUs; }
+        public void setMinLatencyUs(double minLatencyUs) { this.minLatencyUs = minLatencyUs; }
+        public double getMaxLatencyUs() { return maxLatencyUs; }
+        public void setMaxLatencyUs(double maxLatencyUs) { this.maxLatencyUs = maxLatencyUs; }
+        public long getBucketCount() { return bucketCount; }
+        public void setBucketCount(long bucketCount) { this.bucketCount = bucketCount; }
+        public long getMemoryBytes() { return memoryBytes; }
+        public void setMemoryBytes(long memoryBytes) { this.memoryBytes = memoryBytes; }
+        public double getMemoryMB() { return memoryBytes / (1024.0 * 1024.0); }
 
         @Override
         public String toString() {

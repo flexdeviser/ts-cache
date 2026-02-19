@@ -1,7 +1,6 @@
 package org.e4s.model.dynamic;
 
 import org.e4s.model.GenericBucket;
-import org.e4s.model.Models;
 import org.e4s.model.Timestamped;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -41,7 +40,6 @@ class DynamicModelGeneratorTest {
 
     @Test
     void shouldNotGenerateMeterBucketClass() {
-        // Bucket is now a generic hardcoded class, not generated
         assertFalse(generatedClasses.containsKey("MeterBucket"));
     }
 
@@ -110,29 +108,50 @@ class DynamicModelGeneratorTest {
     }
 
     @Test
-    void shouldCreateReadingUsingModels() {
-        Timestamped reading = Models.newReading(1234567890L, 220.5, 5.2, 1146.6);
+    void shouldCreateReadingUsingRegistry() {
+        DynamicModelRegistry registry = DynamicModelRegistry.getInstance();
+        registry.initialize();
+        
+        Map<String, Object> fieldValues = new HashMap<>();
+        fieldValues.put("reportedTs", 1234567890L);
+        fieldValues.put("voltage", 220.5);
+        fieldValues.put("current", 5.2);
+        fieldValues.put("power", 1146.6);
+        
+        Timestamped reading = registry.createReading("MeterReading", fieldValues);
         
         assertEquals(1234567890L, reading.getTimestamp());
-        assertEquals(1234567890L, Models.getReportedTs(reading));
-        assertEquals(220.5, Models.getVoltage(reading), 0.001);
-        assertEquals(5.2, Models.getCurrent(reading), 0.001);
-        assertEquals(1146.6, Models.getPower(reading), 0.001);
+        assertEquals(1234567890L, (Long) registry.getFieldValue(reading, "reportedTs"));
+        assertEquals(220.5, (Double) registry.getFieldValue(reading, "voltage"), 0.001);
+        assertEquals(5.2, (Double) registry.getFieldValue(reading, "current"), 0.001);
+        assertEquals(1146.6, (Double) registry.getFieldValue(reading, "power"), 0.001);
     }
 
     @Test
-    void shouldCreateBucketUsingModels() {
-        GenericBucket<Timestamped> bucket = Models.newBucket("MTR-001", 19500L);
+    void shouldCreateBucketUsingRegistry() {
+        DynamicModelRegistry registry = DynamicModelRegistry.getInstance();
+        registry.initialize();
         
-        assertEquals("MTR-001", bucket.getMeterId());
+        GenericBucket<Timestamped> bucket = registry.createBucket("MeterReading", "MTR-001", 19500L);
+        
+        assertEquals("MTR-001", bucket.getId());
         assertEquals(19500L, bucket.getBucketDateEpochDay());
         assertEquals(0, bucket.getReadingCount());
     }
 
     @Test
     void shouldAddReadingToBucket() {
-        Timestamped reading = Models.newReading(1234567890L, 220.5, 5.2, 1146.6);
-        GenericBucket<Timestamped> bucket = Models.newBucket("MTR-001", 19500L);
+        DynamicModelRegistry registry = DynamicModelRegistry.getInstance();
+        registry.initialize();
+        
+        Map<String, Object> fieldValues = new HashMap<>();
+        fieldValues.put("reportedTs", 1234567890L);
+        fieldValues.put("voltage", 220.5);
+        fieldValues.put("current", 5.2);
+        fieldValues.put("power", 1146.6);
+        
+        Timestamped reading = registry.createReading("MeterReading", fieldValues);
+        GenericBucket<Timestamped> bucket = registry.createBucket("MeterReading", "MTR-001", 19500L);
         
         bucket.addReading(reading);
         
@@ -141,15 +160,29 @@ class DynamicModelGeneratorTest {
 
     @Test
     void shouldDeduplicateReadingsByTimestamp() {
-        GenericBucket<Timestamped> bucket = Models.newBucket("MTR-001", 19500L);
+        DynamicModelRegistry registry = DynamicModelRegistry.getInstance();
+        registry.initialize();
         
-        Timestamped reading1 = Models.newReading(1234567890L, 220.5, 5.2, 1146.6);
-        Timestamped reading2 = Models.newReading(1234567890L, 221.0, 5.3, 1171.3); // same timestamp
+        GenericBucket<Timestamped> bucket = registry.createBucket("MeterReading", "MTR-001", 19500L);
+        
+        Map<String, Object> fieldValues1 = new HashMap<>();
+        fieldValues1.put("reportedTs", 1234567890L);
+        fieldValues1.put("voltage", 220.5);
+        fieldValues1.put("current", 5.2);
+        fieldValues1.put("power", 1146.6);
+        Timestamped reading1 = registry.createReading("MeterReading", fieldValues1);
+        
+        Map<String, Object> fieldValues2 = new HashMap<>();
+        fieldValues2.put("reportedTs", 1234567890L);
+        fieldValues2.put("voltage", 221.0);
+        fieldValues2.put("current", 5.3);
+        fieldValues2.put("power", 1171.3);
+        Timestamped reading2 = registry.createReading("MeterReading", fieldValues2);
         
         bucket.addReading(reading1);
         bucket.addReading(reading2);
         
         assertEquals(1, bucket.getReadingCount());
-        assertEquals(221.0, Models.getVoltage(bucket.getReadings()[0]), 0.001);
+        assertEquals(221.0, (Double) registry.getFieldValue(bucket.getReadings()[0], "voltage"), 0.001);
     }
 }

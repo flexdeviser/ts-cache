@@ -2,9 +2,10 @@ package org.e4s.server.service;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
-import org.e4s.model.MeterBucket;
+import org.e4s.model.GenericBucket;
 import org.e4s.model.MeterDayKey;
-import org.e4s.model.MeterReading;
+import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
 import org.e4s.server.config.HazelcastConfig;
 import org.springframework.stereotype.Service;
 
@@ -13,101 +14,54 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-/**
- * Core service for managing meter data in the Hazelcast cache.
- * 
- * <p>This service provides all operations for the time-series hot cache:
- * <ul>
- *   <li><b>Ingestion:</b> Single reading, batch per meter, multi-meter batch</li>
- *   <li><b>Query:</b> Time-range queries and aggregations</li>
- *   <li><b>Eviction:</b> Manual and age-based cleanup</li>
- *   <li><b>Monitoring:</b> Cache statistics and memory usage</li>
- * </ul>
- * 
- * <h2>Data Model</h2>
- * Data is organized as daily buckets:
- * <ul>
- *   <li>Key format: "meterId:YYYY-MM-DD" (e.g., "MTR-001:2026-02-18")</li>
- *   <li>Value: {@link MeterBucket} containing all readings for that day</li>
- *   <li>Typical: 96 readings/day (15-minute intervals)</li>
- * </ul>
- * 
- * <h2>Deduplication</h2>
- * Readings with duplicate {@code reportedTs} are automatically replaced, ensuring
- * each timestamp has only one reading per meter. This handles late-arriving data
- * and re-transmissions gracefully.
- * 
- * <h2>Thread Safety</h2>
- * Uses Hazelcast's {@link IMap#compute} for atomic updates. The service is thread-safe
- * and can handle concurrent ingestion from multiple sources.
- * 
- * <h2>Performance Characteristics</h2>
- * <ul>
- *   <li>Single ingest: ~30K ops/sec, 260 µs latency</li>
- *   <li>Batch ingest: ~225K ops/sec (grouped by day, single compute per bucket)</li>
- *   <li>Range query: ~64K ops/sec, 233 µs latency</li>
- *   <li>Aggregation: ~32K ops/sec, 472 µs latency</li>
- * </ul>
- */
 @Service
 public class MeterCacheService {
 
-    private final IMap<String, MeterBucket> meterDataMap;
+    private static final String AGGREGATION_FIELD = "power";
+    
+    private final IMap<String, GenericBucket<Timestamped>> meterDataMap;
 
     public MeterCacheService(HazelcastInstance hazelcastInstance) {
+        DynamicModelRegistry.getInstance().initialize();
         this.meterDataMap = hazelcastInstance.getMap(HazelcastConfig.METER_DATA_MAP);
     }
 
-    public void ingestReading(String meterId, MeterReading reading) {
-        LocalDate day = Instant.ofEpochMilli(reading.getReportedTs()).atZone(ZoneOffset.UTC).toLocalDate();
+    public void ingestReading(String meterId, Timestamped reading) {
+        LocalDate day = Instant.ofEpochMilli(reading.getTimestamp())
+                .atZone(ZoneOffset.UTC)
+                .toLocalDate();
         String key = MeterDayKey.of(meterId, day).toKeyString();
 
         meterDataMap.compute(key, (k, bucket) -> {
             if (bucket == null) {
-                bucket = new MeterBucket(meterId, day.toEpochDay());
+                bucket = DynamicModelRegistry.getInstance().createBucket("MeterReading", meterId, day.toEpochDay());
             }
             bucket.addReading(reading);
             return bucket;
         });
     }
 
-    /**
-     * Ingests multiple readings for a single meter with optimized batching.
-     * 
-     * <p>This method groups readings by day and performs a single {@link IMap#compute}
-     * operation per day bucket, significantly reducing network roundtrips compared to
-     * calling {@link #ingestReading} for each reading individually.
-     * 
-     * <p>Readings with duplicate timestamps ({@code reportedTs}) are automatically
-     * replaced in the bucket.
-     * 
-     * <h3>Performance</h3>
-     * <ul>
-     *   <li>~5x faster than individual ingest calls for multi-day data</li>
-     *   <li>Single network roundtrip per day bucket instead of per reading</li>
-     * </ul>
-     * 
-     * @param meterId the meter identifier
-     * @param readings the readings to ingest
-     */
-    public void ingestReadings(String meterId, List<MeterReading> readings) {
-        Map<LocalDate, List<MeterReading>> byDay = readings.stream()
-                .collect(Collectors.groupingBy(r ->
-                        Instant.ofEpochMilli(r.getReportedTs())
-                                .atZone(ZoneOffset.UTC)
-                                .toLocalDate()));
+    @SuppressWarnings("unchecked")
+    public void ingestReadings(String meterId, List<? extends Timestamped> readings) {
+        Map<LocalDate, List<Timestamped>> byDay = new HashMap<>();
+        for (Timestamped r : readings) {
+            LocalDate day = Instant.ofEpochMilli(r.getTimestamp())
+                    .atZone(ZoneOffset.UTC)
+                    .toLocalDate();
+            byDay.computeIfAbsent(day, d -> new ArrayList<>()).add(r);
+        }
 
         byDay.forEach((day, dayReadings) -> {
             String key = MeterDayKey.of(meterId, day).toKeyString();
             meterDataMap.compute(key, (k, bucket) -> {
                 if (bucket == null) {
-                    bucket = new MeterBucket(meterId, day.toEpochDay());
+                    bucket = DynamicModelRegistry.getInstance().createBucket("MeterReading", meterId, day.toEpochDay());
                 }
-                for (MeterReading reading : dayReadings) {
+                for (Timestamped reading : dayReadings) {
                     bucket.addReading(reading);
                 }
                 return bucket;
@@ -119,36 +73,28 @@ public class MeterCacheService {
         requests.forEach(req -> ingestReadings(req.getMeterId(), req.getReadings()));
     }
 
-    public List<MeterReading> queryRange(String meterId, Instant start, Instant end) {
-        List<MeterReading> result = new ArrayList<>();
+    public List<Timestamped> queryRange(String meterId, Instant start, Instant end) {
+        List<Timestamped> result = new ArrayList<>();
         LocalDate startDay = start.atZone(ZoneOffset.UTC).toLocalDate();
         LocalDate endDay = end.atZone(ZoneOffset.UTC).toLocalDate();
 
         LocalDate currentDay = startDay;
         while (!currentDay.isAfter(endDay)) {
             String key = MeterDayKey.of(meterId, currentDay).toKeyString();
-            MeterBucket bucket = meterDataMap.get(key);
+            GenericBucket<Timestamped> bucket = meterDataMap.get(key);
             if (bucket != null) {
-                long startTs = start.toEpochMilli();
-                long endTs = end.toEpochMilli();
-                MeterReading[] readings = bucket.getReadings();
-                for (int i = 0; i < bucket.getReadingCount(); i++) {
-                    MeterReading r = readings[i];
-                    if (r.getReportedTs() >= startTs && r.getReportedTs() <= endTs) {
-                        result.add(r);
-                    }
-                }
+                result.addAll(bucket.queryRange(start.toEpochMilli(), end.toEpochMilli()));
             }
             currentDay = currentDay.plusDays(1);
         }
 
-        result.sort(Comparator.comparingLong(MeterReading::getReportedTs));
+        result.sort(Comparator.comparingLong(Timestamped::getTimestamp));
         return result;
     }
 
     public AggregationResult queryAggregation(String meterId, Instant start, Instant end,
                                                AggregationType type, Interval interval) {
-        List<MeterReading> readings = queryRange(meterId, start, end);
+        List<Timestamped> readings = queryRange(meterId, start, end);
 
         AggregationResult result = new AggregationResult();
         result.setMeterId(meterId);
@@ -159,28 +105,31 @@ public class MeterCacheService {
             return result;
         }
 
+        DynamicModelRegistry registry = DynamicModelRegistry.getInstance();
+        
         switch (type) {
             case AVG -> {
                 double sum = 0;
-                for (MeterReading r : readings) {
-                    sum += r.getPower();
+                for (Timestamped r : readings) {
+                    sum += (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
                 }
                 result.setValue(sum / readings.size());
                 result.setCount(readings.size());
             }
             case SUM -> {
                 double sum = 0;
-                for (MeterReading r : readings) {
-                    sum += r.getPower();
+                for (Timestamped r : readings) {
+                    sum += (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
                 }
                 result.setValue(sum);
                 result.setCount(readings.size());
             }
             case MIN -> {
                 double min = Double.MAX_VALUE;
-                for (MeterReading r : readings) {
-                    if (r.getPower() < min) {
-                        min = r.getPower();
+                for (Timestamped r : readings) {
+                    double val = (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    if (val < min) {
+                        min = val;
                     }
                 }
                 result.setValue(min);
@@ -188,9 +137,10 @@ public class MeterCacheService {
             }
             case MAX -> {
                 double max = Double.MIN_VALUE;
-                for (MeterReading r : readings) {
-                    if (r.getPower() > max) {
-                        max = r.getPower();
+                for (Timestamped r : readings) {
+                    double val = (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    if (val > max) {
+                        max = val;
                     }
                 }
                 result.setValue(max);
@@ -238,7 +188,7 @@ public class MeterCacheService {
         List<String> keysToEvict = new ArrayList<>();
 
         for (String key : meterDataMap.keySet()) {
-            MeterBucket bucket = meterDataMap.get(key);
+            GenericBucket<Timestamped> bucket = meterDataMap.get(key);
             if (bucket != null) {
                 long age = now - bucket.getCreatedTime();
                 long idle = now - bucket.getLastAccessTime();
@@ -255,7 +205,7 @@ public class MeterCacheService {
 
     public static class IngestRequest {
         private String meterId;
-        private List<MeterReading> readings;
+        private List<? extends Timestamped> readings;
 
         public String getMeterId() {
             return meterId;
@@ -265,11 +215,11 @@ public class MeterCacheService {
             this.meterId = meterId;
         }
 
-        public List<MeterReading> getReadings() {
+        public List<? extends Timestamped> getReadings() {
             return readings;
         }
 
-        public void setReadings(List<MeterReading> readings) {
+        public void setReadings(List<? extends Timestamped> readings) {
             this.readings = readings;
         }
     }
@@ -338,7 +288,7 @@ public class MeterCacheService {
         private final long putCount;
         private final long getCount;
 
-        public CacheStats(long totalEntries, long ownedEntries, long memoryCostBytes, 
+        public CacheStats(long totalEntries, long ownedEntries, long memoryCostBytes,
                           long heapCostBytes, long putCount, long getCount) {
             this.totalEntries = totalEntries;
             this.ownedEntries = ownedEntries;

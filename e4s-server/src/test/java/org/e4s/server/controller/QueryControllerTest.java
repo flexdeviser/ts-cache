@@ -1,8 +1,10 @@
 package org.e4s.server.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.e4s.model.MeterReading;
+import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
 import org.e4s.server.service.MeterCacheService;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -13,7 +15,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -32,14 +36,29 @@ class QueryControllerTest {
     @MockBean
     private MeterCacheService meterCacheService;
 
+    @BeforeAll
+    static void setUp() {
+        DynamicModelRegistry.getInstance().initialize();
+    }
+
     @Test
     void testQueryRange() throws Exception {
         Instant start = Instant.parse("2026-02-18T00:00:00Z");
         Instant end = Instant.parse("2026-02-18T23:59:59Z");
 
-        List<MeterReading> readings = Arrays.asList(
-                new MeterReading(Instant.parse("2026-02-18T10:00:00Z").toEpochMilli(), 220.5, 5.2, 1146.6),
-                new MeterReading(Instant.parse("2026-02-18T10:15:00Z").toEpochMilli(), 221.0, 5.3, 1171.3)
+        Map<String, Object> fv1 = new HashMap<>();
+        fv1.put("reportedTs", Instant.parse("2026-02-18T10:00:00Z").toEpochMilli());
+        fv1.put("voltage", 220.5);
+        fv1.put("current", 5.2);
+        fv1.put("power", 1146.6);
+        Map<String, Object> fv2 = new HashMap<>();
+        fv2.put("reportedTs", Instant.parse("2026-02-18T10:15:00Z").toEpochMilli());
+        fv2.put("voltage", 221.0);
+        fv2.put("current", 5.3);
+        fv2.put("power", 1171.3);
+        List<Timestamped> readings = Arrays.asList(
+                DynamicModelRegistry.getInstance().createReading("MeterReading", fv1),
+                DynamicModelRegistry.getInstance().createReading("MeterReading", fv2)
         );
 
         when(meterCacheService.queryRange("MTR-001", start, end)).thenReturn(readings);

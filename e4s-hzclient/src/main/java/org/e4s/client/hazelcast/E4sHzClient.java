@@ -2,89 +2,49 @@ package org.e4s.client.hazelcast;
 
 import com.hazelcast.client.HazelcastClient;
 import com.hazelcast.client.config.ClientConfig;
-import com.hazelcast.config.SerializerConfig;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
 import org.e4s.client.E4sClient;
-import org.e4s.model.MeterBucket;
+import org.e4s.model.GenericBucket;
 import org.e4s.model.MeterDayKey;
-import org.e4s.model.MeterReading;
-import org.e4s.model.serialization.MeterBucketHazelcastSerializer;
-import org.e4s.model.serialization.MeterReadingHazelcastSerializer;
+import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
+import org.e4s.model.serialization.GenericBucketHazelcastSerializer;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-/**
- * Native Hazelcast client implementation with client-side serialization.
- * 
- * <p>This client connects directly to the Hazelcast cluster and performs
- * serialization on the client side, providing:
- * <ul>
- *   <li><b>~90% smaller network payload</b> - Kryo + Deflater binary format</li>
- *   <li><b>Zero serialization CPU on server</b> - Server only handles cache operations</li>
- *   <li><b>Higher throughput</b> - Direct IMap access without HTTP overhead</li>
- * </ul>
- * 
- * <h2>Architecture</h2>
- * <pre>
- * ┌──────────────┐     Binary/HZ      ┌──────────────┐
- * │ E4sHzClient  │ ═══════════════►   │  e4s-server  │
- * │              │   Kryo+Deflater    │  (Hazelcast) │
- * │ Serialization│                    │  (cache only)│
- * │ on client    │ ◄═══════════════   │  Eviction    │
- * └──────────────┘    Binary data     └──────────────┘
- * </pre>
- * 
- * <h2>Usage</h2>
- * <pre>{@code
- * try (E4sHzClient client = new E4sHzClient("localhost:5701")) {
- *     // Ingest data
- *     MeterReading reading = new MeterReading(
- *         Instant.now().toEpochMilli(), 220.5, 5.2, 1146.6);
- *     client.ingestReading("MTR-001", reading);
- *     
- *     // Query data
- *     List<MeterReading> data = client.queryRange(
- *         "MTR-001", 
- *         Instant.now().minus(1, ChronoUnit.DAYS),
- *         Instant.now());
- * }
- * }</pre>
- * 
- * <h2>Thread Safety</h2>
- * This client is thread-safe. The underlying Hazelcast client handles
- * concurrent access efficiently.
- * 
- * @see E4sClient
- */
 public class E4sHzClient implements E4sClient {
 
     private static final String METER_DATA_MAP = "meter-data";
+    private static final String AGGREGATION_FIELD = "power";
 
     private final HazelcastInstance hazelcastClient;
-    private final IMap<String, MeterBucket> meterDataMap;
+    private final IMap<String, GenericBucket<Timestamped>> meterDataMap;
 
     public E4sHzClient(String address) {
         this(createClientConfig(address));
     }
 
     public E4sHzClient(ClientConfig config) {
+        DynamicModelRegistry.getInstance().initialize();
         this.hazelcastClient = HazelcastClient.newHazelcastClient(config);
         this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
     }
 
     public E4sHzClient(HazelcastInstance hazelcastClient) {
+        DynamicModelRegistry.getInstance().initialize();
         this.hazelcastClient = hazelcastClient;
         this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
     }
 
+    @SuppressWarnings("unchecked")
     private static ClientConfig createClientConfig(String address) {
         ClientConfig config = new ClientConfig();
         
@@ -94,64 +54,47 @@ public class E4sHzClient implements E4sClient {
                 .setConnectionTimeout(5000);
         
         config.getSerializationConfig().addSerializerConfig(
-                new SerializerConfig()
-                        .setTypeClass(MeterReading.class)
-                        .setImplementation(new MeterReadingHazelcastSerializer())
-        );
-        
-        config.getSerializationConfig().addSerializerConfig(
-                new SerializerConfig()
-                        .setTypeClass(MeterBucket.class)
-                        .setImplementation(new MeterBucketHazelcastSerializer())
+                new com.hazelcast.config.SerializerConfig()
+                        .setTypeClass(GenericBucket.class)
+                        .setImplementation(new GenericBucketHazelcastSerializer())
         );
         
         return config;
     }
 
     @Override
-    public void ingestReading(String meterId, MeterReading reading) {
-        LocalDate day = Instant.ofEpochMilli(reading.getReportedTs())
+    public void ingestReading(String meterId, Timestamped reading) {
+        LocalDate day = Instant.ofEpochMilli(reading.getTimestamp())
                 .atZone(ZoneOffset.UTC)
                 .toLocalDate();
         String key = MeterDayKey.of(meterId, day).toKeyString();
 
         meterDataMap.compute(key, (k, bucket) -> {
             if (bucket == null) {
-                bucket = new MeterBucket(meterId, day.toEpochDay());
+                bucket = DynamicModelRegistry.getInstance().createBucket("MeterReading", meterId, day.toEpochDay());
             }
             bucket.addReading(reading);
             return bucket;
         });
-
     }
 
-    /**
-     * Ingests multiple readings for a single meter with optimized batching.
-     * 
-     * <p>This method groups readings by day and performs a single {@link IMap#compute}
-     * operation per day bucket, significantly reducing network roundtrips.
-     * 
-     * <p>Readings with duplicate timestamps ({@code reportedTs}) are automatically
-     * replaced in the bucket.
-     * 
-     * @param meterId the meter identifier
-     * @param readings the readings to ingest
-     */
     @Override
-    public void ingestReadings(String meterId, List<MeterReading> readings) {
-        Map<LocalDate, List<MeterReading>> byDay = readings.stream()
-                .collect(Collectors.groupingBy(r ->
-                        Instant.ofEpochMilli(r.getReportedTs())
-                                .atZone(ZoneOffset.UTC)
-                                .toLocalDate()));
+    public void ingestReadings(String meterId, List<? extends Timestamped> readings) {
+        Map<LocalDate, List<Timestamped>> byDay = new HashMap<>();
+        for (Timestamped r : readings) {
+            LocalDate day = Instant.ofEpochMilli(r.getTimestamp())
+                    .atZone(ZoneOffset.UTC)
+                    .toLocalDate();
+            byDay.computeIfAbsent(day, d -> new ArrayList<>()).add(r);
+        }
 
         byDay.forEach((day, dayReadings) -> {
             String key = MeterDayKey.of(meterId, day).toKeyString();
             meterDataMap.compute(key, (k, bucket) -> {
                 if (bucket == null) {
-                    bucket = new MeterBucket(meterId, day.toEpochDay());
+                    bucket = DynamicModelRegistry.getInstance().createBucket("MeterReading", meterId, day.toEpochDay());
                 }
-                for (MeterReading reading : dayReadings) {
+                for (Timestamped reading : dayReadings) {
                     bucket.addReading(reading);
                 }
                 return bucket;
@@ -165,37 +108,29 @@ public class E4sHzClient implements E4sClient {
     }
 
     @Override
-    public List<MeterReading> queryRange(String meterId, Instant start, Instant end) {
-        List<MeterReading> result = new ArrayList<>();
+    public List<Timestamped> queryRange(String meterId, Instant start, Instant end) {
+        List<Timestamped> result = new ArrayList<>();
         LocalDate startDay = start.atZone(ZoneOffset.UTC).toLocalDate();
         LocalDate endDay = end.atZone(ZoneOffset.UTC).toLocalDate();
 
         LocalDate currentDay = startDay;
         while (!currentDay.isAfter(endDay)) {
             String key = MeterDayKey.of(meterId, currentDay).toKeyString();
-            MeterBucket bucket = meterDataMap.get(key);
+            GenericBucket<Timestamped> bucket = meterDataMap.get(key);
             if (bucket != null) {
-                long startTs = start.toEpochMilli();
-                long endTs = end.toEpochMilli();
-                MeterReading[] readings = bucket.getReadings();
-                for (int i = 0; i < bucket.getReadingCount(); i++) {
-                    MeterReading r = readings[i];
-                    if (r.getReportedTs() >= startTs && r.getReportedTs() <= endTs) {
-                        result.add(r);
-                    }
-                }
+                result.addAll(bucket.queryRange(start.toEpochMilli(), end.toEpochMilli()));
             }
             currentDay = currentDay.plusDays(1);
         }
 
-        result.sort(Comparator.comparingLong(MeterReading::getReportedTs));
+        result.sort(Comparator.comparingLong(Timestamped::getTimestamp));
         return result;
     }
 
     @Override
     public AggregationResult queryAggregation(String meterId, Instant start, Instant end,
                                                AggregationType type, Interval interval) {
-        List<MeterReading> readings = queryRange(meterId, start, end);
+        List<Timestamped> readings = queryRange(meterId, start, end);
 
         AggregationResult result = new AggregationResult();
         result.setMeterId(meterId);
@@ -206,28 +141,31 @@ public class E4sHzClient implements E4sClient {
             return result;
         }
 
+        DynamicModelRegistry registry = DynamicModelRegistry.getInstance();
+        
         switch (type) {
             case AVG -> {
                 double sum = 0;
-                for (MeterReading r : readings) {
-                    sum += r.getPower();
+                for (Timestamped r : readings) {
+                    sum += (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
                 }
                 result.setValue(sum / readings.size());
                 result.setCount(readings.size());
             }
             case SUM -> {
                 double sum = 0;
-                for (MeterReading r : readings) {
-                    sum += r.getPower();
+                for (Timestamped r : readings) {
+                    sum += (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
                 }
                 result.setValue(sum);
                 result.setCount(readings.size());
             }
             case MIN -> {
                 double min = Double.MAX_VALUE;
-                for (MeterReading r : readings) {
-                    if (r.getPower() < min) {
-                        min = r.getPower();
+                for (Timestamped r : readings) {
+                    double val = (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    if (val < min) {
+                        min = val;
                     }
                 }
                 result.setValue(min);
@@ -235,9 +173,10 @@ public class E4sHzClient implements E4sClient {
             }
             case MAX -> {
                 double max = Double.MIN_VALUE;
-                for (MeterReading r : readings) {
-                    if (r.getPower() > max) {
-                        max = r.getPower();
+                for (Timestamped r : readings) {
+                    double val = (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    if (val > max) {
+                        max = val;
                     }
                 }
                 result.setValue(max);
@@ -287,8 +226,7 @@ public class E4sHzClient implements E4sClient {
         return hazelcastClient;
     }
 
-
-    public IMap<String, MeterBucket> getMeterDataMap() {
+    public IMap<String, GenericBucket<Timestamped>> getMeterDataMap() {
         return meterDataMap;
     }
 }

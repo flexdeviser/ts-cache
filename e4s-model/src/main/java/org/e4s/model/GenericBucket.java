@@ -1,17 +1,15 @@
 package org.e4s.model;
 
 import java.lang.reflect.Array;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 public class GenericBucket<T extends Timestamped> {
 
-    private String meterId;
+    private String id;
     private long bucketDateEpochDay;
+    private String modelName;
     private T[] readings;
     private int readingCount;
     private long lastAccessTime;
@@ -19,7 +17,8 @@ public class GenericBucket<T extends Timestamped> {
     private final Class<T> readingType;
 
     @SuppressWarnings("unchecked")
-    public GenericBucket(Class<T> readingType) {
+    public GenericBucket(String modelName, Class<T> readingType) {
+        this.modelName = modelName;
         this.readingType = readingType;
         this.readings = (T[]) Array.newInstance(readingType, 0);
         this.readingCount = 0;
@@ -27,18 +26,18 @@ public class GenericBucket<T extends Timestamped> {
         this.lastAccessTime = this.createdTime;
     }
 
-    public GenericBucket(String meterId, long bucketDateEpochDay, Class<T> readingType) {
-        this(readingType);
-        this.meterId = meterId;
+    public GenericBucket(String id, long bucketDateEpochDay, String modelName, Class<T> readingType) {
+        this(modelName, readingType);
+        this.id = id;
         this.bucketDateEpochDay = bucketDateEpochDay;
     }
 
-    public String getMeterId() {
-        return meterId;
+    public String getId() {
+        return id;
     }
 
-    public void setMeterId(String meterId) {
-        this.meterId = meterId;
+    public void setId(String id) {
+        this.id = id;
     }
 
     public long getBucketDateEpochDay() {
@@ -47,6 +46,14 @@ public class GenericBucket<T extends Timestamped> {
 
     public void setBucketDateEpochDay(long bucketDateEpochDay) {
         this.bucketDateEpochDay = bucketDateEpochDay;
+    }
+
+    public String getModelName() {
+        return modelName;
+    }
+
+    public void setModelName(String modelName) {
+        this.modelName = modelName;
     }
 
     public T[] getReadings() {
@@ -156,8 +163,9 @@ public class GenericBucket<T extends Timestamped> {
     @Override
     public String toString() {
         return "GenericBucket{" +
-                "meterId='" + meterId + '\'' +
+                "id='" + id + '\'' +
                 ", bucketDateEpochDay=" + bucketDateEpochDay +
+                ", modelName='" + modelName + '\'' +
                 ", readingCount=" + readingCount +
                 '}';
     }

@@ -6,4 +6,9 @@
     <field name="current" type="double"/>
     <field name="power" type="double"/>
   </model>
+
+  <model name="WaterMeterReading" package="org.e4s.model.dynamic" implements="Timestamped" timestampField="readTs">
+    <field name="readTs" type="long"/>
+    <field name="usage" type="double"/>
+  </model>
 </datastore>
