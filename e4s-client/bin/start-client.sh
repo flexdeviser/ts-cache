@@ -1,14 +1,13 @@
 #!/bin/bash
 
-# E4S Native Client Launcher
-# Usage: ./start-client.sh [options]
+# E4S Client Launcher
+# Usage: ./start-client.sh [options] -- <main-class> [args...]
 #
 # Options:
 #   --address <host:port>  Hazelcast server address (default: localhost:5701)
 #   --models-path <path>   Absolute path to models.xml file
 #   --java-opts <opts>     Additional JVM options
-#   --validate             Validate models hash with server HTTP endpoint
-#   --http-url <url>       Server HTTP URL for validation (e.g., http://localhost:8080)
+#   --main <class>         Main class to run (required)
 #   --help                 Show this help message
 #
 # Configuration Priority (highest to lowest):
@@ -16,6 +15,8 @@
 #   2. Environment variable (E4S_MODELS_PATH)
 #   3. System property (-De4s.models-path=...)
 #   4. Default (classpath:models.xml)
+#
+# Note: Client automatically validates model hash against server on connect.
 
 set -e
 
@@ -25,22 +26,18 @@ APP_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 ADDRESS="${E4S_ADDRESS:-localhost:5701}"
 MODELS_PATH=""
 JAVA_OPTS=""
-VALIDATE=false
-HTTP_URL=""
 MAIN_CLASS=""
 
 usage() {
-    echo "E4S Native Client Launcher"
+    echo "E4S Client Launcher"
     echo ""
-    echo "Usage: $0 [options] [-- <main-class> [args...]]"
+    echo "Usage: $0 [options] -- <main-class> [args...]"
     echo ""
     echo "Options:"
     echo "  --address <host:port>  Hazelcast server address (default: localhost:5701)"
     echo "  --models-path <path>   Absolute path to models.xml file"
     echo "  --java-opts <opts>     Additional JVM options"
-    echo "  --validate             Validate models hash with server HTTP endpoint"
-    echo "  --http-url <url>       Server HTTP URL for validation (e.g., http://localhost:8080)"
-    echo "  --main <class>         Main class to run"
+    echo "  --main <class>         Main class to run (required)"
     echo "  --help                 Show this help message"
     echo ""
     echo "Configuration Priority (highest to lowest):"
@@ -49,10 +46,14 @@ usage() {
     echo "  3. System property (-De4s.models-path=...)"
     echo "  4. Default (classpath:models.xml)"
     echo ""
+    echo "Model Validation:"
+    echo "  The client automatically validates the model hash against the server"
+    echo "  on connect. If hashes don't match, the client will exit with an error."
+    echo ""
     echo "Examples:"
-    echo "  $0 --models-path /data/config/models.xml --address server:5701"
-    echo "  E4S_MODELS_PATH=/data/config/models.xml $0"
-    echo "  $0 --validate --http-url http://localhost:8080 --main com.example.MyClient"
+    echo "  $0 --models-path /data/config/models.xml --main com.example.MyClient"
+    echo "  $0 --address server:5701 --main com.example.MyClient"
+    echo "  E4S_MODELS_PATH=/data/config/models.xml $0 --main com.example.MyClient"
     exit 0
 }
 
@@ -68,14 +69,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --java-opts)
             JAVA_OPTS="$2"
-            shift 2
-            ;;
-        --validate)
-            VALIDATE=true
-            shift
-            ;;
-        --http-url)
-            HTTP_URL="$2"
             shift 2
             ;;
         --main)
@@ -118,9 +111,9 @@ if [ -z "$MODELS_PATH" ] && [ -n "$E4S_MODELS_PATH" ]; then
     echo "Using models.xml from environment: $E4S_MODELS_PATH"
 fi
 
-# Build classpath
+# Build classpath from target directory
 CLASSPATH=""
-for jar in "$APP_HOME"/e4s-model/target/*.jar "$APP_HOME"/e4s-hzclient/target/*.jar; do
+for jar in "$APP_HOME"/target/*.jar; do
     if [ -f "$jar" ] && [[ ! "$jar" =~ sources ]] && [[ ! "$jar" =~ original ]]; then
         if [ -n "$CLASSPATH" ]; then
             CLASSPATH="$CLASSPATH:"
@@ -130,7 +123,7 @@ for jar in "$APP_HOME"/e4s-model/target/*.jar "$APP_HOME"/e4s-hzclient/target/*.
 done
 
 # Add dependencies
-for dep in "$APP_HOME"/e4s-model/target/dependency/*.jar "$APP_HOME"/e4s-hzclient/target/dependency/*.jar; do
+for dep in "$APP_HOME"/target/dependency/*.jar; do
     if [ -f "$dep" ]; then
         CLASSPATH="$CLASSPATH:$dep"
     fi
@@ -143,11 +136,10 @@ if [ -z "$CLASSPATH" ]; then
 fi
 
 echo "=============================================="
-echo "Starting E4S Native Client"
+echo "Starting E4S Client"
 echo "=============================================="
 echo "  Address: $ADDRESS"
 echo "  Models: ${MODELS_PATH:-${E4S_MODELS_PATH:-classpath:models.xml}}"
-echo "  Validate: $VALIDATE"
 if [ -n "$MAIN_CLASS" ]; then
     echo "  Main Class: $MAIN_CLASS"
 fi
@@ -159,14 +151,13 @@ if [ -n "$MODELS_PATH" ]; then
     JAVA_OPTS="$JAVA_OPTS -De4s.models-path=$MODELS_PATH"
 fi
 
-if [ "$VALIDATE" = true ] && [ -n "$HTTP_URL" ]; then
-    JAVA_OPTS="$JAVA_OPTS -De4s.validate-models=true -De4s.http-url=$HTTP_URL"
-fi
-
 # Check if main class is specified
 if [ -z "$MAIN_CLASS" ]; then
     echo "ERROR: No main class specified"
     echo "Use --main <class> to specify the main class to run"
+    echo ""
+    echo "Example:"
+    echo "  $0 --main org.e4s.client.hazelcast.ClientBenchmark"
     exit 1
 fi
 

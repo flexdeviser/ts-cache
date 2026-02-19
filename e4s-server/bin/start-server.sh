@@ -97,16 +97,12 @@ fi
 
 # Find jar file if not specified
 if [ -z "$JAR_FILE" ]; then
-    JAR_FILE=$(find "$APP_HOME" -name "e4s-server*.jar" -type f | head -1)
-    
-    if [ -z "$JAR_FILE" ]; then
-        # Check in target directory
-        JAR_FILE=$(find "$APP_HOME/e4s-server/target" -name "e4s-server*.jar" -type f ! -name "*sources*" ! -name "*original*" | head -1)
-    fi
+    # Check in target directory
+    JAR_FILE=$(find "$APP_HOME/target" -name "e4s-server*.jar" -type f ! -name "*sources*" ! -name "*original*" | head -1)
     
     if [ -z "$JAR_FILE" ]; then
         echo "ERROR: Could not find e4s-server.jar"
-        echo "Please specify with --jar option or build the project first"
+        echo "Please specify with --jar option or build the project first: mvn clean package -DskipTests"
         exit 1
     fi
 fi
