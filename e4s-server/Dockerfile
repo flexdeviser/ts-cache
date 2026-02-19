@@ -3,20 +3,22 @@ FROM maven:3.9-eclipse-temurin-17 AS builder
 
 WORKDIR /build
 
-# Copy pom files first for better caching
+# Copy all pom files first for better caching
 COPY pom.xml .
+RUN mkdir -p e4s-model e4s-server e4s-client
 COPY e4s-model/pom.xml e4s-model/
 COPY e4s-server/pom.xml e4s-server/
+COPY e4s-client/pom.xml e4s-client/
 
 # Download dependencies
 RUN mvn dependency:go-offline -B
 
-# Copy source code
+# Copy source code - only for modules we're building
 COPY e4s-model/src e4s-model/src
 COPY e4s-server/src e4s-server/src
 
-# Build the application
-RUN mvn clean package -DskipTests -B
+# Build the application - only e4s-model and e4s-server
+RUN mvn clean package -DskipTests -B -pl e4s-model,e4s-server -am
 
 # Runtime stage
 FROM eclipse-temurin:17-jre-jammy
