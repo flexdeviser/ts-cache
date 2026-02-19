@@ -31,39 +31,68 @@ public class E4sHzClient implements E4sClient {
     private static final String METER_DATA_MAP = "meter-data";
     private static final String MODEL_INFO_MAP = "e4s-model-info";
     private static final String MODEL_HASH_KEY = "modelHash";
-    private static final String AGGREGATION_FIELD = "power";
 
     private final HazelcastInstance hazelcastClient;
     private final IMap<String, GenericBucket<Timestamped>> meterDataMap;
+    private final String modelName;
+    private final String aggregationField;
 
     public E4sHzClient(String address) {
-        this(address, null);
+        this(address, null, null, null);
     }
 
     public E4sHzClient(String address, String modelsPath) {
-        this(createClientConfig(address), modelsPath);
+        this(address, modelsPath, null, null);
+    }
+
+    public E4sHzClient(String address, String modelsPath, String modelName) {
+        this(address, modelsPath, modelName, null);
+    }
+
+    public E4sHzClient(String address, String modelsPath, String modelName, String aggregationField) {
+        this(createClientConfig(address), modelsPath, modelName, aggregationField);
     }
 
     public E4sHzClient(ClientConfig config) {
-        this(config, null);
+        this(config, null, null, null);
     }
 
     public E4sHzClient(ClientConfig config, String modelsPath) {
+        this(config, modelsPath, null, null);
+    }
+
+    public E4sHzClient(ClientConfig config, String modelsPath, String modelName) {
+        this(config, modelsPath, modelName, null);
+    }
+
+    public E4sHzClient(ClientConfig config, String modelsPath, String modelName, String aggregationField) {
         DynamicModelRegistry.getInstance().initialize(modelsPath);
         this.hazelcastClient = HazelcastClient.newHazelcastClient(config);
         this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
+        this.modelName = modelName != null ? modelName : "MeterReading";
+        this.aggregationField = aggregationField != null ? aggregationField : "power";
         
         validateModelsMatchServer();
     }
 
     public E4sHzClient(HazelcastInstance hazelcastClient) {
-        this(hazelcastClient, null);
+        this(hazelcastClient, null, null, null);
     }
 
     public E4sHzClient(HazelcastInstance hazelcastClient, String modelsPath) {
+        this(hazelcastClient, modelsPath, null, null);
+    }
+
+    public E4sHzClient(HazelcastInstance hazelcastClient, String modelsPath, String modelName) {
+        this(hazelcastClient, modelsPath, modelName, null);
+    }
+
+    public E4sHzClient(HazelcastInstance hazelcastClient, String modelsPath, String modelName, String aggregationField) {
         DynamicModelRegistry.getInstance().initialize(modelsPath);
         this.hazelcastClient = hazelcastClient;
         this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
+        this.modelName = modelName != null ? modelName : "MeterReading";
+        this.aggregationField = aggregationField != null ? aggregationField : "power";
         
         validateModelsMatchServer();
     }
@@ -138,6 +167,8 @@ public class E4sHzClient implements E4sClient {
             System.out.println("Model validation passed:");
             System.out.println("  Hash: " + clientHash.substring(0, 16) + "...");
             System.out.println("  Models: " + DynamicModelRegistry.getInstance().getModelNames());
+            System.out.println("  Using model: " + modelName);
+            System.out.println("  Aggregation field: " + aggregationField);
             
         } catch (IllegalStateException e) {
             throw e;
@@ -145,6 +176,14 @@ public class E4sHzClient implements E4sClient {
             System.err.println("WARNING: Failed to validate models with server: " + e.getMessage());
             System.err.println("  Continuing without validation...");
         }
+    }
+
+    public String getModelName() {
+        return modelName;
+    }
+
+    public String getAggregationField() {
+        return aggregationField;
     }
 
     @Override
@@ -156,7 +195,7 @@ public class E4sHzClient implements E4sClient {
 
         meterDataMap.compute(key, (k, bucket) -> {
             if (bucket == null) {
-                bucket = DynamicModelRegistry.getInstance().createBucket("MeterReading", meterId, day.toEpochDay());
+                bucket = DynamicModelRegistry.getInstance().createBucket(modelName, meterId, day.toEpochDay());
             }
             bucket.addReading(reading);
             return bucket;
@@ -177,7 +216,7 @@ public class E4sHzClient implements E4sClient {
             String key = MeterDayKey.of(meterId, day).toKeyString();
             meterDataMap.compute(key, (k, bucket) -> {
                 if (bucket == null) {
-                    bucket = DynamicModelRegistry.getInstance().createBucket("MeterReading", meterId, day.toEpochDay());
+                    bucket = DynamicModelRegistry.getInstance().createBucket(modelName, meterId, day.toEpochDay());
                 }
                 for (Timestamped reading : dayReadings) {
                     bucket.addReading(reading);
@@ -232,7 +271,7 @@ public class E4sHzClient implements E4sClient {
             case AVG -> {
                 double sum = 0;
                 for (Timestamped r : readings) {
-                    sum += (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    sum += (Double) registry.getFieldValue(r, aggregationField);
                 }
                 result.setValue(sum / readings.size());
                 result.setCount(readings.size());
@@ -240,7 +279,7 @@ public class E4sHzClient implements E4sClient {
             case SUM -> {
                 double sum = 0;
                 for (Timestamped r : readings) {
-                    sum += (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    sum += (Double) registry.getFieldValue(r, aggregationField);
                 }
                 result.setValue(sum);
                 result.setCount(readings.size());
@@ -248,7 +287,7 @@ public class E4sHzClient implements E4sClient {
             case MIN -> {
                 double min = Double.MAX_VALUE;
                 for (Timestamped r : readings) {
-                    double val = (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    double val = (Double) registry.getFieldValue(r, aggregationField);
                     if (val < min) {
                         min = val;
                     }
@@ -259,7 +298,7 @@ public class E4sHzClient implements E4sClient {
             case MAX -> {
                 double max = Double.MIN_VALUE;
                 for (Timestamped r : readings) {
-                    double val = (Double) registry.getFieldValue(r, AGGREGATION_FIELD);
+                    double val = (Double) registry.getFieldValue(r, aggregationField);
                     if (val > max) {
                         max = val;
                     }

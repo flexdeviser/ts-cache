@@ -39,6 +39,8 @@ services:
       - JAVA_OPTS=-Xms256m -Xmx1g
       - E4S_MODELS_PATH=/app/config/models.xml
       - E4S_ADDRESS=e4s-server:5701
+      - E4S_MODEL_NAME=MeterReading
+      - E4S_AGGREGATION_FIELD=power
       - MAIN_CLASS=org.e4s.client.example.ExampleClient
     volumes:
       - ./e4s-model/src/main/resources/models.xml:/app/config/models.xml:ro

@@ -25,20 +25,24 @@ public class ExampleClient {
     public static void main(String[] args) {
         String address = System.getenv().getOrDefault("E4S_ADDRESS", "localhost:5701");
         String modelsPath = System.getenv().getOrDefault("E4S_MODELS_PATH", null);
+        String modelName = System.getenv().getOrDefault("E4S_MODEL_NAME", "MeterReading");
+        String aggregationField = System.getenv().getOrDefault("E4S_AGGREGATION_FIELD", "power");
         
         System.out.println("==============================================");
         System.out.println("E4S Example Client");
         System.out.println("==============================================");
         System.out.println("  Address: " + address);
         System.out.println("  Models: " + (modelsPath != null ? modelsPath : "classpath:models.xml"));
+        System.out.println("  Model Name: " + modelName);
+        System.out.println("  Aggregation Field: " + aggregationField);
         System.out.println("==============================================");
         System.out.println();
         
-        try (E4sClient client = new E4sHzClient(address, modelsPath)) {
+        try (E4sClient client = new E4sHzClient(address, modelsPath, modelName, aggregationField)) {
             System.out.println("Connected to server successfully!");
             System.out.println();
             
-            runDemo(client);
+            runDemo(client, modelName, aggregationField);
             
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
@@ -47,12 +51,12 @@ public class ExampleClient {
         }
     }
     
-    private static void runDemo(E4sClient client) {
+    private static void runDemo(E4sClient client, String modelName, String aggregationField) {
         String meterId = "DEMO-MTR-001";
         Instant baseTime = Instant.now().minus(1, ChronoUnit.DAYS);
         
         System.out.println("--- Ingest Demo ---");
-        List<Timestamped> readings = generateReadings(96, baseTime);
+        List<Timestamped> readings = generateReadings(96, baseTime, modelName);
         client.ingestReadings(meterId, readings);
         System.out.println("Ingested " + readings.size() + " readings for " + meterId);
         System.out.println();
@@ -67,11 +71,11 @@ public class ExampleClient {
         System.out.println("--- Aggregation Demo ---");
         AggregationResult avgResult = client.queryAggregation(
                 meterId, start, end, AggregationType.AVG, Interval.HOURLY);
-        System.out.println("Avg power: " + String.format("%.2f", avgResult.getValue()) + " W");
+        System.out.println("Avg " + aggregationField + ": " + String.format("%.2f", avgResult.getValue()));
         
         AggregationResult sumResult = client.queryAggregation(
                 meterId, start, end, AggregationType.SUM, Interval.DAILY);
-        System.out.println("Sum power: " + String.format("%.2f", sumResult.getValue()) + " W");
+        System.out.println("Sum " + aggregationField + ": " + String.format("%.2f", sumResult.getValue()));
         System.out.println();
         
         System.out.println("--- Cache Stats ---");
@@ -83,7 +87,7 @@ public class ExampleClient {
         System.out.println("Demo completed successfully!");
     }
     
-    private static List<Timestamped> generateReadings(int count, Instant startTime) {
+    private static List<Timestamped> generateReadings(int count, Instant startTime, String modelName) {
         List<Timestamped> readings = new ArrayList<>(count);
         
         for (int i = 0; i < count; i++) {
@@ -96,7 +100,7 @@ public class ExampleClient {
             fieldValues.put("power", 1000 + random.nextDouble() * 500);
             
             Timestamped reading = DynamicModelRegistry.getInstance()
-                    .createReading("MeterReading", fieldValues);
+                    .createReading(modelName, fieldValues);
             readings.add(reading);
         }
         
