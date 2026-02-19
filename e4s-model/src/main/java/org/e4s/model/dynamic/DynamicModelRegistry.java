@@ -4,23 +4,25 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.Serializer;
 import org.e4s.model.GenericBucket;
 import org.e4s.model.Timestamped;
+import org.e4s.model.config.ModelConfig;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class DynamicModelRegistry {
 
     private static final DynamicModelRegistry INSTANCE = new DynamicModelRegistry();
-    private static final String DEFAULT_MODELS_XML = "models.xml";
     
     private final Map<String, Class<?>> modelClasses = new HashMap<>();
     private final Map<Class<?>, String> classToModelName = new HashMap<>();
     private final Map<String, Serializer<?>> serializers = new HashMap<>();
     private final Map<String, ModelDefinition> definitions = new HashMap<>();
     private volatile boolean initialized = false;
+    private volatile String modelsPath;
+    private volatile String modelsHash;
 
     private DynamicModelRegistry() {
     }
@@ -30,16 +32,21 @@ public final class DynamicModelRegistry {
     }
 
     public synchronized void initialize() {
-        initialize(DEFAULT_MODELS_XML);
+        initialize((String) null);
     }
 
-    public synchronized void initialize(String modelsXmlPath) {
+    public synchronized void initialize(String modelsPath) {
         if (initialized) {
             return;
         }
         
+        String resolvedPath = ModelConfig.resolveModelPath(modelsPath);
+        this.modelsPath = resolvedPath;
+        
+        System.out.println(ModelConfig.getResolutionInfo(modelsPath));
+        
         ModelDefinitionLoader loader = new ModelDefinitionLoader();
-        List<ModelDefinition> modelDefinitions = loader.load(modelsXmlPath);
+        List<ModelDefinition> modelDefinitions = loader.load(resolvedPath);
         
         Map<String, ModelDefinition> definitionMap = new HashMap<>();
         for (ModelDefinition def : modelDefinitions) {
@@ -58,6 +65,11 @@ public final class DynamicModelRegistry {
         KryoSerializerGenerator serializerGenerator = new KryoSerializerGenerator(classes, definitionMap);
         Map<String, Serializer<?>> generatedSerializers = serializerGenerator.generateSerializers();
         this.serializers.putAll(generatedSerializers);
+        
+        this.modelsHash = ModelConfig.computeModelHash(resolvedPath);
+        
+        System.out.println("  Model hash: " + modelsHash.substring(0, 16) + "...");
+        System.out.println("  Models loaded: " + definitions.keySet());
         
         initialized = true;
     }
@@ -90,6 +102,26 @@ public final class DynamicModelRegistry {
     public ModelDefinition getDefinition(String modelName) {
         checkInitialized();
         return definitions.get(modelName);
+    }
+
+    public String getModelsPath() {
+        checkInitialized();
+        return modelsPath;
+    }
+
+    public String getModelsHash() {
+        checkInitialized();
+        return modelsHash;
+    }
+
+    public Set<String> getModelNames() {
+        checkInitialized();
+        return definitions.keySet();
+    }
+
+    public int getModelCount() {
+        checkInitialized();
+        return definitions.size();
     }
 
     public void registerKryo(Kryo kryo) {
@@ -132,7 +164,6 @@ public final class DynamicModelRegistry {
         checkInitialized();
         try {
             Object instance = createInstance(modelName);
-            Class<?> clazz = instance.getClass();
             
             ModelDefinition modelDef = definitions.get(modelName);
             if (modelDef == null) {
@@ -199,33 +230,23 @@ public final class DynamicModelRegistry {
         return new GenericBucket<>(id, bucketDateEpochDay, modelName, (Class<Timestamped>) readingClass);
     }
 
-    private Constructor<?> findConstructor(Class<?> clazz, Class<?>[] paramTypes) 
-            throws NoSuchMethodException {
-        for (Constructor<?> ctor : clazz.getConstructors()) {
-            Class<?>[] ctorParamTypes = ctor.getParameterTypes();
-            if (ctorParamTypes.length == paramTypes.length) {
-                boolean match = true;
-                for (int i = 0; i < paramTypes.length; i++) {
-                    if (!ctorParamTypes[i].isAssignableFrom(paramTypes[i]) &&
-                        !isAssignableWithPrimitives(ctorParamTypes[i], paramTypes[i])) {
-                        match = false;
-                        break;
-                    }
-                }
-                if (match) {
-                    return ctor;
-                }
-            }
-        }
-        throw new NoSuchMethodException("No suitable constructor found");
-    }
+    public void validateHashMatch(String serverHash) {
+        checkInitialized();
+        
+        if (serverHash == null || !serverHash.equals(this.modelsHash)) {
+            String error = """
 
-    private boolean isAssignableWithPrimitives(Class<?> expected, Class<?> actual) {
-        if (expected == long.class && actual == Long.class) return true;
-        if (expected == int.class && actual == Integer.class) return true;
-        if (expected == double.class && actual == Double.class) return true;
-        if (expected == float.class && actual == Float.class) return true;
-        if (expected == boolean.class && actual == Boolean.class) return true;
-        return false;
+                ERROR: Model definition mismatch between client and server
+                  Server model hash: %s
+                  Client model hash: %s
+                
+                Ensure both client and server use the same models.xml file.
+                Check that the models.xml path is configured correctly.
+                """.formatted(
+                    serverHash != null ? serverHash.substring(0, Math.min(16, serverHash.length())) + "..." : "(unknown)",
+                    this.modelsHash.substring(0, 16) + "..."
+                );
+            throw new IllegalStateException(error);
+        }
     }
 }

@@ -12,6 +12,7 @@ management:
         include: health,info
 
 e4s:
+  models-path: ${E4S_MODELS_PATH:}
   retention-days: 21
   idle-hours: 24
   eviction:

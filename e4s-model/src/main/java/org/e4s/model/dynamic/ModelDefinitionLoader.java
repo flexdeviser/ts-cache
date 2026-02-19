@@ -7,19 +7,40 @@ import org.w3c.dom.NodeList;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
 public class ModelDefinitionLoader {
 
     public List<ModelDefinition> load(String resourcePath) {
+        Path filePath = Paths.get(resourcePath);
+        
+        if (filePath.isAbsolute() && Files.exists(filePath)) {
+            return loadFromPath(filePath);
+        }
+        
+        return loadFromClasspath(resourcePath);
+    }
+
+    public List<ModelDefinition> loadFromPath(Path path) {
+        try (InputStream is = Files.newInputStream(path)) {
+            return load(is);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load model definitions from file: " + path, e);
+        }
+    }
+
+    public List<ModelDefinition> loadFromClasspath(String resourcePath) {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
-                throw new IllegalArgumentException("Model definition file not found: " + resourcePath);
+                throw new IllegalArgumentException("Model definition file not found on classpath: " + resourcePath);
             }
             return load(is);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load model definitions from " + resourcePath, e);
+            throw new RuntimeException("Failed to load model definitions from classpath: " + resourcePath, e);
         }
     }
 
@@ -28,6 +49,10 @@ public class ModelDefinitionLoader {
         
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document document = builder.parse(inputStream);
             document.getDocumentElement().normalize();

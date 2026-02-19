@@ -27,21 +27,40 @@ public class E4sHzClient implements E4sClient {
 
     private final HazelcastInstance hazelcastClient;
     private final IMap<String, GenericBucket<Timestamped>> meterDataMap;
+    private final String serverAddress;
 
     public E4sHzClient(String address) {
-        this(createClientConfig(address));
+        this(address, (String) null);
+    }
+
+    public E4sHzClient(String address, String modelsPath) {
+        this(createClientConfig(address), modelsPath, address);
     }
 
     public E4sHzClient(ClientConfig config) {
-        DynamicModelRegistry.getInstance().initialize();
-        this.hazelcastClient = HazelcastClient.newHazelcastClient(config);
-        this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
+        this(config, null, null);
+    }
+
+    public E4sHzClient(ClientConfig config, String modelsPath) {
+        this(config, modelsPath, null);
     }
 
     public E4sHzClient(HazelcastInstance hazelcastClient) {
-        DynamicModelRegistry.getInstance().initialize();
+        this(hazelcastClient, null);
+    }
+
+    public E4sHzClient(HazelcastInstance hazelcastClient, String modelsPath) {
+        DynamicModelRegistry.getInstance().initialize(modelsPath);
         this.hazelcastClient = hazelcastClient;
         this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
+        this.serverAddress = null;
+    }
+
+    private E4sHzClient(ClientConfig config, String modelsPath, String address) {
+        DynamicModelRegistry.getInstance().initialize(modelsPath);
+        this.hazelcastClient = HazelcastClient.newHazelcastClient(config);
+        this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
+        this.serverAddress = address;
     }
 
     @SuppressWarnings("unchecked")
@@ -60,6 +79,35 @@ public class E4sHzClient implements E4sClient {
         );
         
         return config;
+    }
+
+    public void validateModelsMatchServer(String serverUrl) {
+        try {
+            java.net.URL url = new java.net.URL(serverUrl + "/api/v1/models/hash");
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            
+            if (conn.getResponseCode() == 200) {
+                try (java.io.InputStream is = conn.getInputStream()) {
+                    byte[] bytes = is.readAllBytes();
+                    String response = new String(bytes);
+                    
+                    int hashStart = response.indexOf("\"hash\":\"");
+                    if (hashStart >= 0) {
+                        hashStart += 8;
+                        int hashEnd = response.indexOf("\"", hashStart);
+                        String serverHash = response.substring(hashStart, hashEnd);
+                        
+                        DynamicModelRegistry.getInstance().validateHashMatch(serverHash);
+                    }
+                }
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to validate models with server: " + serverUrl, e);
+        }
     }
 
     @Override

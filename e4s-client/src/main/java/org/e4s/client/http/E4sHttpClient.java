@@ -8,6 +8,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import okhttp3.*;
 import org.e4s.client.E4sClient;
 import org.e4s.model.Timestamped;
+import org.e4s.model.dynamic.DynamicModelRegistry;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -23,10 +24,19 @@ public class E4sHttpClient implements E4sClient {
     private final ObjectMapper objectMapper;
 
     public E4sHttpClient(String baseUrl) {
-        this(baseUrl, defaultHttpClient(), defaultObjectMapper());
+        this(baseUrl, null);
+    }
+
+    public E4sHttpClient(String baseUrl, String modelsPath) {
+        this(baseUrl, defaultHttpClient(), defaultObjectMapper(), modelsPath);
     }
 
     public E4sHttpClient(String baseUrl, OkHttpClient httpClient, ObjectMapper objectMapper) {
+        this(baseUrl, httpClient, objectMapper, null);
+    }
+
+    public E4sHttpClient(String baseUrl, OkHttpClient httpClient, ObjectMapper objectMapper, String modelsPath) {
+        DynamicModelRegistry.getInstance().initialize(modelsPath);
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
@@ -47,6 +57,24 @@ public class E4sHttpClient implements E4sClient {
         mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         return mapper;
+    }
+
+    public void validateModelsMatchServer() {
+        try {
+            String url = baseUrl + "/api/v1/models/hash";
+            String response = get(url);
+            
+            int hashStart = response.indexOf("\"hash\":\"");
+            if (hashStart >= 0) {
+                hashStart += 8;
+                int hashEnd = response.indexOf("\"", hashStart);
+                String serverHash = response.substring(hashStart, hashEnd);
+                
+                DynamicModelRegistry.getInstance().validateHashMatch(serverHash);
+            }
+        } catch (Exception e) {
+            throw new E4sClientException("Failed to validate models with server", e);
+        }
     }
 
     @Override
