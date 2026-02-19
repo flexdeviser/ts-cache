@@ -27,15 +27,13 @@
         Modules:
         - e4s-model: Shared data models and Kryo serializers
         - e4s-server: Hazelcast-based cache server with REST API
-        - e4s-client: HTTP client library for accessing the cache
-        - e4s-hzclient: Native Hazelcast client with client-side serialization
+        - e4s-client: Native Hazelcast client with client-side serialization
     </description>
 
     <modules>
         <module>e4s-model</module>
         <module>e4s-server</module>
         <module>e4s-client</module>
-        <module>e4s-hzclient</module>
     </modules>
 
     <properties>

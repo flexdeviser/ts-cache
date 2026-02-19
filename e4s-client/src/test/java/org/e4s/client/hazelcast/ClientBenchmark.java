@@ -4,7 +4,12 @@ import com.hazelcast.config.Config;
 import com.hazelcast.config.SerializerConfig;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
+import org.e4s.client.AggregationResult;
+import org.e4s.client.AggregationType;
+import org.e4s.client.CacheStats;
 import org.e4s.client.E4sClient;
+import org.e4s.client.IngestRequest;
+import org.e4s.client.Interval;
 import org.e4s.model.GenericBucket;
 import org.e4s.model.Timestamped;
 import org.e4s.model.dynamic.DynamicModelRegistry;
@@ -152,7 +157,7 @@ public class ClientBenchmark {
         result.setAvgLatencyUs(totalLatency.get() / (double) totalOps.get() / 1000.0);
         result.setBucketCount(client.getBucketCount());
         
-        E4sClient.CacheStats stats = client.getCacheStats();
+        CacheStats stats = client.getCacheStats();
         result.setMemoryBytes(stats.getMemoryBytes());
         
         System.out.printf("  Ingest: %d readings in %dms (%.2f ops/sec, avg latency %.2f µs)%n",
@@ -247,7 +252,7 @@ public class ClientBenchmark {
                         
                         long opStart = System.nanoTime();
                         client.queryAggregation(meterId, start, end,
-                                E4sClient.AggregationType.AVG, E4sClient.Interval.DAILY);
+                                AggregationType.AVG, Interval.DAILY);
                         long opLatency = System.nanoTime() - opStart;
                         
                         totalLatency.addAndGet(opLatency);

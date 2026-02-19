@@ -4,7 +4,13 @@ import com.hazelcast.client.HazelcastClient;
 import com.hazelcast.client.config.ClientConfig;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
+import com.hazelcast.replicatedmap.ReplicatedMap;
+import org.e4s.client.AggregationResult;
+import org.e4s.client.AggregationType;
+import org.e4s.client.CacheStats;
 import org.e4s.client.E4sClient;
+import org.e4s.client.IngestRequest;
+import org.e4s.client.Interval;
 import org.e4s.model.GenericBucket;
 import org.e4s.model.MeterDayKey;
 import org.e4s.model.Timestamped;
@@ -23,26 +29,31 @@ import java.util.Map;
 public class E4sHzClient implements E4sClient {
 
     private static final String METER_DATA_MAP = "meter-data";
+    private static final String MODEL_INFO_MAP = "e4s-model-info";
+    private static final String MODEL_HASH_KEY = "modelHash";
     private static final String AGGREGATION_FIELD = "power";
 
     private final HazelcastInstance hazelcastClient;
     private final IMap<String, GenericBucket<Timestamped>> meterDataMap;
-    private final String serverAddress;
 
     public E4sHzClient(String address) {
-        this(address, (String) null);
+        this(address, null);
     }
 
     public E4sHzClient(String address, String modelsPath) {
-        this(createClientConfig(address), modelsPath, address);
+        this(createClientConfig(address), modelsPath);
     }
 
     public E4sHzClient(ClientConfig config) {
-        this(config, null, null);
+        this(config, null);
     }
 
     public E4sHzClient(ClientConfig config, String modelsPath) {
-        this(config, modelsPath, null);
+        DynamicModelRegistry.getInstance().initialize(modelsPath);
+        this.hazelcastClient = HazelcastClient.newHazelcastClient(config);
+        this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
+        
+        validateModelsMatchServer();
     }
 
     public E4sHzClient(HazelcastInstance hazelcastClient) {
@@ -53,14 +64,8 @@ public class E4sHzClient implements E4sClient {
         DynamicModelRegistry.getInstance().initialize(modelsPath);
         this.hazelcastClient = hazelcastClient;
         this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
-        this.serverAddress = null;
-    }
-
-    private E4sHzClient(ClientConfig config, String modelsPath, String address) {
-        DynamicModelRegistry.getInstance().initialize(modelsPath);
-        this.hazelcastClient = HazelcastClient.newHazelcastClient(config);
-        this.meterDataMap = hazelcastClient.getMap(METER_DATA_MAP);
-        this.serverAddress = address;
+        
+        validateModelsMatchServer();
     }
 
     @SuppressWarnings("unchecked")
@@ -81,32 +86,64 @@ public class E4sHzClient implements E4sClient {
         return config;
     }
 
-    public void validateModelsMatchServer(String serverUrl) {
+    private void validateModelsMatchServer() {
         try {
-            java.net.URL url = new java.net.URL(serverUrl + "/api/v1/models/hash");
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
+            ReplicatedMap<String, Object> modelInfo = hazelcastClient.getReplicatedMap(MODEL_INFO_MAP);
+            Object serverHash = modelInfo.get(MODEL_HASH_KEY);
             
-            if (conn.getResponseCode() == 200) {
-                try (java.io.InputStream is = conn.getInputStream()) {
-                    byte[] bytes = is.readAllBytes();
-                    String response = new String(bytes);
-                    
-                    int hashStart = response.indexOf("\"hash\":\"");
-                    if (hashStart >= 0) {
-                        hashStart += 8;
-                        int hashEnd = response.indexOf("\"", hashStart);
-                        String serverHash = response.substring(hashStart, hashEnd);
-                        
-                        DynamicModelRegistry.getInstance().validateHashMatch(serverHash);
-                    }
-                }
+            if (serverHash == null) {
+                System.err.println("WARNING: Server model hash not found. Skipping validation.");
+                System.err.println("  Ensure server is running with model info publishing enabled.");
+                return;
             }
-            conn.disconnect();
+            
+            String clientHash = DynamicModelRegistry.getInstance().getModelsHash();
+            
+            if (!serverHash.equals(clientHash)) {
+                String error = """
+
+                    ================================================================================
+                    FATAL: Model definition mismatch between client and server
+                    ================================================================================
+                    
+                      Server model hash: %s
+                      Client model hash: %s
+                    
+                      This means the client and server are using different models.xml files.
+                      
+                      Possible causes:
+                      1. Client and server have different versions of models.xml
+                      2. models.xml file has been modified on one side but not the other
+                      3. Wrong models.xml path configured
+                    
+                      Solution:
+                      1. Ensure both client and server use the SAME models.xml file
+                      2. Copy the correct models.xml to both locations
+                      3. Restart both server and client
+                    
+                      Server models info endpoint: GET /api/v1/models/info
+                    ================================================================================
+                    """.formatted(
+                        serverHash.toString().substring(0, Math.min(16, serverHash.toString().length())) + "...",
+                        clientHash.substring(0, 16) + "..."
+                    );
+                
+                System.err.println(error);
+                
+                hazelcastClient.shutdown();
+                
+                throw new IllegalStateException("Model definition mismatch - client and server must use the same models.xml");
+            }
+            
+            System.out.println("Model validation passed:");
+            System.out.println("  Hash: " + clientHash.substring(0, 16) + "...");
+            System.out.println("  Models: " + DynamicModelRegistry.getInstance().getModelNames());
+            
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to validate models with server: " + serverUrl, e);
+            System.err.println("WARNING: Failed to validate models with server: " + e.getMessage());
+            System.err.println("  Continuing without validation...");
         }
     }
 
