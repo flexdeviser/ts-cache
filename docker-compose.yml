@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  e4s-server:
+    build:
+      context: .
+      dockerfile: e4s-server/Dockerfile
+    container_name: e4s-server
+    ports:
+      - "8080:8080"
+      - "5701:5701"
+    environment:
+      - JAVA_OPTS=-Xms1g -Xmx4g -XX:+UseG1GC
+      - E4S_MODELS_PATH=/app/config/models.xml
+      - E4S_RETENTION_DAYS=21
+      - E4S_IDLE_HOURS=24
+    volumes:
+      - ./models.xml:/app/config/models.xml:ro
+      - e4s-data:/app/data
+    networks:
+      - e4s-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  e4s-client:
+    build:
+      context: .
+      dockerfile: e4s-client/Dockerfile
+    container_name: e4s-client
+    depends_on:
+      e4s-server:
+        condition: service_healthy
+    environment:
+      - JAVA_OPTS=-Xms256m -Xmx1g
+      - E4S_MODELS_PATH=/app/config/models.xml
+      - E4S_ADDRESS=e4s-server:5701
+      - MAIN_CLASS=org.e4s.client.example.ExampleClient
+    volumes:
+      - ./models.xml:/app/config/models.xml:ro
+    networks:
+      - e4s-network
+    profiles:
+      - client
+
+networks:
+  e4s-network:
+    driver: bridge
+
+volumes:
+  e4s-data:

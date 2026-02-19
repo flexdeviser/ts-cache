@@ -1,0 +1,42 @@
+# Build output
+target/
+!target/*.jar
+!target/dependency/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.docker/
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+src/test/
+
+# Bin scripts (not needed in container)
+bin/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
